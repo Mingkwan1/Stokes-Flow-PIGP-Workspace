@@ -1,0 +1,10 @@
+jax
+matplotlib
+optax
+pandas
+
+#FEM
+petsc4py
+ufl
+dolfinx
+dolfinx_mpc

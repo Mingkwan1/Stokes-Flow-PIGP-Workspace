@@ -1,0 +1,24 @@
+[project]
+name = "workspace"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Mingkwan Rattanasiwamok", email = "mingkwan.ratta@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "jax>=0.4.30",
+    "jaxopt>=0.8.5",
+    "matplotlib>=3.9.4",
+    "optax>=0.2.8",
+    "pandas>=2.3.3",
+    "scikit-fem>=12.0.2",
+]
+
+[project.scripts]
+workspace = "workspace:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"

@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.vscode
+
+src/workspace/outputs
+src/workspace/outputs_2D
+
+src/workspace/_init_.py
+
+u_prediction.png
+
+run_err.log
+run.log
