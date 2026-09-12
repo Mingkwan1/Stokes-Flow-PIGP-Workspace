@@ -12,6 +12,8 @@ wheels/
 
 src/workspace/outputs
 src/workspace/outputs_2D
+src/workspace/outputs_unsteady_stokes_flow
+src/workspace/outputs_unsteady_stokes_flow_2
 
 src/workspace/_init_.py
 

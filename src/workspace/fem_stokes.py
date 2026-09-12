@@ -75,7 +75,43 @@ def _periodic_prolongation(basis, L, tol=1e-9):
                    shape=(n, int(keep.sum()))).tocsr()
     return P, keep
 
+def _build_mesh_and_bases(L, a, avg_width, nx, ny):
+    from skfem import MeshTri, Basis, ElementVector, ElementTriP2, ElementTriP1
 
+    def wid(x):
+        return avg_width + 2.0*a*np.sin(2.0*np.pi*x/L)
+
+    m0 = MeshTri.init_tensor(np.linspace(0.0, L, nx + 1),
+                             np.linspace(-0.5, 0.5, ny + 1))
+    p = m0.p.copy()
+    p[1] = p[1] * wid(p[0]) / avg_width
+    m = MeshTri(p, m0.t)
+
+    uelem = ElementVector(ElementTriP2())
+    ub = Basis(m, uelem, intorder=4)
+    pb = ub.with_element(ElementTriP1())
+    return m, ub, pb, wid
+
+
+def _wall_dofs(ub, wid, L, nx, verbose):
+    wall_tol = 1e-3
+    wall = ub.get_dofs(
+        lambda x: np.abs(np.abs(x[1]) - wid(x[0])/2.0) < wall_tol).all()
+    if verbose:
+        expect = 2*(2*(2*nx))
+        print(f"[fem] {wall.size} wall dofs (expect ~{expect})")
+    if wall.size < 0.5*2*(2*(2*nx)):
+        raise RuntimeError(
+            f"only {wall.size} wall dofs found - the no-slip condition would "
+            f"be under-applied. Increase wall_tol.")
+    return wall
+
+
+def _sample(basis, vals, pts, chunk=250):
+    itp = basis.interpolator(vals)
+    return np.concatenate(
+        [itp(pts[:, k:k+chunk]) for k in range(0, pts.shape[1], chunk)],
+        axis=-1)
 # --------------------------------------------------------------------------
 # solver
 # --------------------------------------------------------------------------
@@ -187,6 +223,131 @@ def solve(sample_points, *, L, a, avg_width, eta, body_force_x,
     return uv[0], uv[1], pv
 
 
+# --------------------------------------------------------------------------
+# unsteady solver -- backward Euler, SAME scheme as the PIGP march
+# --------------------------------------------------------------------------
+def solve_unsteady(sample_points, snap_steps, *, L, a, avg_width, eta,
+                   rho, body_force_x, dt, nx=240, ny=64, verbose=True):
+    """March backward-Euler Stokes in FEM space, from u^0 = 0 at rest.
+ 
+        rho*(u^n - u^{n-1})/dt = -grad p^n + eta*lap u^n + F
+        div u^n = 0
+ 
+    which rearranges to the same saddle-point system solved at every step:
+ 
+        (rho/dt * M + A) u^n + B^T p^n = rho/dt * M u^{n-1} + f
+        B u^n = 0
+ 
+    The LHS is IDENTICAL every step (same dt, same mesh), so it is
+    factorized ONCE and every step is a single sparse solve -- the FEM
+    analogue of the frozen-Cholesky trick used in the PIGP march.
+ 
+    Parameters
+    ----------
+    snap_steps : sorted iterable of step indices (1-based) to return, e.g.
+                 the PIGP script's SNAP_STEPS. Must not exceed max(snap_steps).
+ 
+    Returns
+    -------
+    dict: {step: (u1, u2, p)}, each sampled at `sample_points`, one entry
+    per requested step. u^0 = 0 is not included (it is not the solution of
+    a linear solve here, it is the imposed initial condition).
+    """
+    try:
+        from skfem import BilinearForm, LinearForm, condense
+        from skfem.helpers import grad, div, dot
+    except ImportError as e:
+        raise ImportError(
+            "scikit-fem is required for the FEM reference solve. "
+            "Install it with:  uv add scikit-fem") from e
+ 
+    import scipy.sparse as sp
+    from scipy.sparse.linalg import splu
+ 
+    snap_steps = sorted(set(int(s) for s in snap_steps))
+    n_steps = max(snap_steps)
+ 
+    m, ub, pb, wid = _build_mesh_and_bases(L, a, avg_width, nx, ny)
+    if verbose:
+        print(f"[fem-unsteady] mesh {m.p.shape[1]} vertices, "
+              f"{m.t.shape[1]} triangles, dt={dt}, {n_steps} steps, "
+              f"snapshots at {snap_steps}")
+ 
+    @BilinearForm
+    def vector_lap(u, v, w):
+        return eta*np.einsum('ij...,ij...', grad(u), grad(v))
+ 
+    @BilinearForm
+    def divergence(u, q, w):
+        return -q*div(u)
+ 
+    @BilinearForm
+    def mass(u, v, w):
+        return dot(u, v)
+ 
+    @LinearForm
+    def body(v, w):
+        return body_force_x*v[0]
+ 
+    A = vector_lap.assemble(ub)
+    B = divergence.assemble(ub, pb)
+    M = mass.assemble(ub)
+    f = body.assemble(ub)
+ 
+    nu, npr = ub.N, pb.N
+    c = rho/dt
+ 
+    # LHS: (c*M + A)  B^T ; B  0.  Same every step.
+    Klhs = sp.bmat([[c*M + A, B.T], [B, None]], format='csr')
+ 
+    Pu, _ = _periodic_prolongation(ub, L)
+    Pp, _ = _periodic_prolongation(pb, L)
+    P = sp.block_diag([Pu, Pp], format='csr')
+    Kr = (P.T @ Klhs @ P).tocsr()
+ 
+    wall = _wall_dofs(ub, wid, L, nx, verbose)
+    full_to_red = np.asarray(P.argmax(axis=1)).ravel()
+    D = np.unique(full_to_red[wall])
+    D = np.concatenate([D, [full_to_red[nu]]])   # pin one pressure dof
+    keep = np.ones(Kr.shape[0], dtype=bool)
+    keep[D] = False
+    idx_free = np.flatnonzero(keep)
+ 
+    # factorize the constrained LHS ONCE -- reused at every time step
+    K_free = Kr[idx_free][:, idx_free].tocsc()
+    lu = splu(K_free)
+    if verbose:
+        print(f"[fem-unsteady] factorized {K_free.shape[0]}x{K_free.shape[0]} "
+              f"system once, reused for all {n_steps} steps")
+ 
+    pts = np.asarray(sample_points).T
+    u_prev_full = np.zeros(nu)     # u^0 = 0, fluid at rest -- matches PIGP IC
+ 
+    results = {}
+    for n in range(1, n_steps + 1):
+        Frhs = np.concatenate([c*(M @ u_prev_full) + f, np.zeros(npr)])
+        Frhs_r = P.T @ Frhs
+ 
+        xr_free = lu.solve(Frhs_r[idx_free])
+        xr = np.zeros(Kr.shape[0])
+        xr[idx_free] = xr_free
+        # xr[D] left at 0: homogeneous no-slip + pinned pressure dof
+ 
+        x = P @ xr
+        u_full, pr = x[:nu], x[nu:]
+        u_prev_full = u_full
+ 
+        if n in snap_steps:
+            uv = _sample(ub, u_full, pts)
+            pv = _sample(pb, pr, pts)
+            pv = pv - np.nanmean(pv)
+            results[n] = (uv[0], uv[1], pv)
+            if verbose:
+                print(f"[fem-unsteady] step {n:>4}  t={n*dt:.4f}  "
+                      f"u_x max={np.nanmax(uv[0]):.4f}")
+ 
+    return results
+
 def get(sample_points, cache_path, *, refit=False, **kwargs):
     """Cached wrapper around solve(). kwargs pass straight through."""
     cache_path = Path(cache_path)
@@ -206,6 +367,34 @@ def get(sample_points, cache_path, *, refit=False, **kwargs):
     print(f"[fem] wrote {cache_path}")
     return u1, u2, p
 
+def get_unsteady(sample_points, snap_steps, cache_path, *, refit=False, **kwargs):
+    """Cached wrapper around solve_unsteady()."""
+    cache_path = Path(cache_path)
+    cfg = dict(kwargs)
+    cfg["snap_steps"] = sorted(set(int(s) for s in snap_steps))
+    fp = _fingerprint(cfg, sample_points)
+
+    if not refit and cache_path.exists():
+        d = np.load(cache_path, allow_pickle=False)
+        if str(d["fingerprint"]) == fp:
+            print(f"[fem-unsteady] loaded cached march from {cache_path}")
+            steps = d["steps"]
+            return {int(s): (d[f"u1_{s}"], d[f"u2_{s}"], d[f"p_{s}"])
+                    for s in steps}
+        print("[fem-unsteady] fingerprint mismatch -> re-solving")
+
+    print("[fem-unsteady] marching backward-Euler Stokes with scikit-fem ...")
+    results = solve_unsteady(sample_points, snap_steps, **kwargs)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"fingerprint": np.asarray(fp),
+              "steps": np.asarray(sorted(results.keys()))}
+    for s, (u1, u2, p) in results.items():
+        payload[f"u1_{s}"] = u1
+        payload[f"u2_{s}"] = u2
+        payload[f"p_{s}"] = p
+    np.savez(cache_path, **payload)
+    print(f"[fem-unsteady] wrote {cache_path}")
+    return results
 
 if __name__ == "__main__":
     import argparse
