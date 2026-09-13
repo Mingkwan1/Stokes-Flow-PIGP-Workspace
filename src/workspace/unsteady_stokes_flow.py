@@ -42,6 +42,10 @@ parser.add_argument("--no-cache", action="store_true", help="do not read or writ
 parser.add_argument("--nm-iter", type=int, default=500)
 parser.add_argument("--tol", type=float, default=1e-4)
 
+parser.add_argument("--n-candidate", type=int, default=680,
+                    help="size of the random candidate pool that artificial "
+                         "points are subsampled from each step; independent "
+                         "of N_f/N_s")
 parser.add_argument("--n-loop", type=int, default=10,
                     help="number of backward-Euler steps to march")
 parser.add_argument("--dt", type=float, default=0.01)
@@ -77,8 +81,9 @@ parser.add_argument("--evolution-share-rows", action="store_true",
 
 args = parser.parse_args()
 
-OUTDIR = Path(__file__).resolve().parent / "outputs_unsteady_stokes_flow"
+OUTDIR = Path(__file__).resolve().parent / "outputs"/"unsteady_stokes_flow_outputs"
 (OUTDIR / "plots" / "base").mkdir(parents=True, exist_ok=True)
+(OUTDIR / "cache").mkdir(parents=True, exist_ok=True)
 PLOT_PATH = CACHE_PATH = OUTDIR / "plots" 
 CACHE_PATH = OUTDIR / "cache" / "final_params_unsteady.npz"
 
@@ -197,21 +202,15 @@ s = jnp.zeros(N_s)
 
 ###
 
+
 def sample_artificial(n, key, fresh=False, margin=0.98):
-    """Locations for the artificial data {x^{n-1}, u^{n-1}}.
- 
-    fresh=False : subsample the collocation grid without replacement.
-    fresh=True  : draw new uniform interior points (paper sec. 2.2).
-    """
-    if n >= R_f.shape[0] and not fresh:
-        return R_f
+    """Draw n artificial-data locations from the candidate pool R_candidate."""
     if fresh:
-        kx, ke = jrd.split(key)
-        x = jrd.uniform(kx, (n,), minval=0.0, maxval=L)
-        e = jrd.uniform(ke, (n,), minval=-0.5, maxval=0.5) * margin
-        return jnp.stack([x, e * width(x)], axis=-1)
-    idx = jrd.choice(key, R_f.shape[0], (n,), replace=False)
-    return R_f[idx]
+        return sample_uniform(n, key, margin)
+    if n >= R_candidate.shape[0]:
+        return R_candidate
+    idx = jrd.choice(key, R_candidate.shape[0], (n,), replace=False)
+    return R_candidate[idx]
 
 def plot_training_points(save_path=None):
     fig, ax = plt.subplots(figsize=(11, 5))
@@ -539,6 +538,8 @@ def config_fingerprint(R_G0):
         "nm_iter": int(args.nm_iter), "tol": float(args.tol),
         "theta_init": [float(v) for v in theta_init],
         "points_hash": _arr_hash(R_u_train, R_dSu1, R_dSu2, R_sp, R_G0, R_s),
+        "n_artificial": int(args.n_artificial),
+        "n_candidate": int(args.n_candidate),
     }
     h = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:16]
     return h, cfg
@@ -579,6 +580,15 @@ def report_theta(theta):
 
 # ---- test points: a grid inside the channel -------------------------------
 
+def sample_uniform(n, key, margin=0.98):
+    kx, ke = jrd.split(key)
+    x = jrd.uniform(kx, (n,), minval=0.0, maxval=L)
+    e = jrd.uniform(ke, (n,), minval=-0.5, maxval=0.5) * margin
+    return jnp.stack([x, e * width(x)], axis=-1)
+
+key = jrd.PRNGKey(args.artificial_seed)
+key, k_cand = jrd.split(key)
+R_candidate = sample_uniform(args.n_candidate, k_cand)
 
 NX, NY = 120, 41
 TEST_MARGIN = min(args.test_margin, 0.98) if args.fem else args.test_margin
