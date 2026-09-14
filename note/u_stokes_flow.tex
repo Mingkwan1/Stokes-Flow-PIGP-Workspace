@@ -1,6 +1,13 @@
-\documentclass[12pt, letterpaper]{article}
+\documentclass[12pt, letterpaper]{report}
 \usepackage{graphicx}
 \usepackage{amsmath}
+
+% Global equation numbering (not by chapter)
+\counterwithout{equation}{chapter}
+
+% Do the same for figures and tables if you want
+\counterwithout{figure}{chapter}
+\counterwithout{table}{chapter}
 
 \def\mathbi#1{\textbf{\em #1}}
 
@@ -15,7 +22,174 @@
 
 \pagebreak  % Preferred - allows LaTeX to adjust spacing
 
-\section{Introduction}
+\chapter{Introduction}
+    \section{Unsteady Stokes FLow}
+Behavior of fluid could be explain via the Navier Stokes Equation, which utilize Cauchy Momentum to do so. For an imcompressible fluid,
+
+\begin{equation}
+    \rho \frac{\partial u}{\partial t} + \nabla (u \cdot \nabla) = \nabla p + \eta{\nabla}^{2} u + f_{ext}
+\end{equation}
+
+For fluid with low Reynold number, the self-advection term could be neglected 
+
+\begin{equation}
+    \rho \frac{\partial u}{\partial t} = -\nabla p + { \eta\nabla}^{2} u + f_{ext}
+\end{equation}
+
+Unsteady Stokes flow is blah blah
+
+\section{Gaussian Process Regression}
+
+Gaussian Process or GP are defined by a series of infinite value that have a joint Gaussian distribution.
+A GP for function \(f(x)\), with the input locations at \(\mathbf{X} =[\mathbf{x_1},\mathbf{x_2},...,\mathbf{x_N}] \), will provide values for
+\(\mathbf{f(X)}=[\mathbf{f(x_1)},\mathbf{f(x_2)},...,\mathbf{f(x_N)}]\). The joint distribution is in the form of a multi-variate Gaussian
+
+\begin{equation}
+    p(\mathbf{f(X)} | \mathbf{X},\mathbf{\theta},\mu(\cdot),k(\cdot,\cdot)) = \mathcal{N}\left(
+        \mu(\mathbf{X},k\mathbf(X,X;\theta))
+    \right)
+\end{equation}
+
+\(\mu\) and \(k\) represent the average function and kernel function resepectively
+
+\begin{equation}
+    \mu(\mathbf{X})=\langle f(\mathbf{X}) \rangle \equiv \langle f \rangle (\mathbf(x))
+\end{equation}
+
+\begin{equation}
+    k\mathbf(X,X;\theta)=\langle \delta f(\mathbf{x}) \delta f(\mathbf{x^{'}}) \rangle \equiv \langle \delta f\delta f (\mathbf{x},\mathbf{x^{'}}) \rangle
+\end{equation}
+
+where \(\theta\) is the hyperparameter of the kernel function. The kernel function used was a square expotential kernel.
+
+\begin{equation}
+    k(x,x^{'})=exp \left( -\frac{(x-x^{'})^2}{2l^2} + \gamma\right)
+\end{equation}
+
+to capture the dimensionality of the problem, derived kernels were utilized such as product kernel, to calculate the kernel function.
+
+\begin{equation}
+    k^{\times}(\mathbf{x},\mathbf{x^{'}})=k(x,x^{'}) \times k(y,y^{'})
+\end{equation}
+
+
+We can learn the function by inferring the value at each test positions \(X_{\star}\). For a function \(f\),
+
+\begin{equation}
+    \begin{bmatrix}
+        \mathbf{f^{\star}} \\
+        \mathbf{f} \\
+    \end{bmatrix}
+        \sim
+    \mathcal{N}\left(
+        \begin{bmatrix}
+            \mathbf{\mu^{\star}} \\
+            \mathbf{\mu} \\
+        \end{bmatrix}
+        ,
+        \begin{bmatrix}
+            \mathbf{K_{\star \star}} & \mathbf{K_{\star}}\\
+                & \mathbf{K} \\
+        \end{bmatrix}
+    \right)
+\end{equation}
+
+the distribution of \(\mathbf{f_{\star}}\ | \mathbf{f} 
+    \sim
+    \mathcal{N}\left(
+        \mathbf{\mu} + \mathbf{K_{\star}}\mathbf{K^{-1}}\delta \mathbf{f} ,  \mathbf{K_{\star \star}} - \mathbf{K_{\star}}\mathbf{K^{-1}}\mathbf{K^{T}_{\star}}
+    \right)\) 
+
+
+\pagebreak
+
+\section{Integration of Physics}
+
+    \subsection{Main Idea}
+
+Using backward Euler we can express \(u^t\) as following
+
+\begin{equation}
+    u^t = u^{t-1} + \frac{\Delta t}{\rho} \left({-\nabla p +  \eta{\nabla}^{2} u + f_{ext}}\right)
+\end{equation}
+
+Now, 
+
+\begin{equation}
+    u^t + \frac{\Delta t}{\rho} \left({\nabla p -  \eta{\nabla}^{2} u}\right)  = u^{t-1} + f_{ext}
+\end{equation}
+
+The \(LHS\) of the equation, we defined as \(\mathcal{G}\)
+
+\begin{equation}
+    \mathcal{G} \equiv u^t + \frac{\Delta t}{\rho} \left({\nabla p -  \eta{\nabla}^{2} u}\right)
+\end{equation}
+\[\mathcal{G} \equiv u^t + \frac{\Delta t}{\rho} f\]
+\[\mathcal{G} \equiv u^{t-1} + f_{ext}\]
+
+where \(f\) is 
+
+\begin{equation}
+    f = {\nabla p - \eta{\nabla}^{2} u}
+\end{equation}
+
+\subsection{Prior} 
+
+We can learn the function by inferring the value at each test positions \(X_{\star}\). For a function \(f\),
+
+\begin{equation}
+    \begin{pmatrix}
+        \mathbf{u} \\
+        \mathbf{p} \\
+        \mathbf{\mathcal{G}} \\
+        \mathbf{s} \\
+    \end{pmatrix}
+    \sim
+    \mathcal{N}\left(
+        0, \mathbf{K}
+    \right)
+\end{equation}
+
+\begin{equation}
+    K = 
+    \begin{bmatrix}
+        \mathbf{K_{u u}} &\mathbf{K_{u p}}& \mathbf{K_{u G}}& \mathbf{K_{u s}} \\
+        \ & \mathbf{K_{p p}}& \mathbf{K_{p G}}& \mathbf{K_{p s}} \\
+        \ & & \mathbf{K_{G G}} & \mathbf{K_{G s}} \\
+        \ & & & \mathbf{K_{s s}} \\
+    \end{bmatrix}
+\end{equation}
+
+    \subsection{Posterior} 
+
+The prior of all the observed points and governing equation can be expressed as
+
+\begin{equation}
+\begin{bmatrix}
+u_b\\
+S^1_L \\
+S^1_p \\
+\mathcal{G}^{t} \\
+s
+\end{bmatrix}
+\sim\mathcal{N}\left(0,
+\begin{bmatrix}
+\mathbf{K_{\star \star}} & \mathbf{Q}\\
+\mathbf{Q^T} & \mathbf{K} \\
+\end{bmatrix}
+\right)
+\end{equation}
+where, \(u_b\) denote the observed boundary value of the velocity.
+The correlation matrixes can be writtten as
+
+\begin{equation}
+\begin{bmatrix}
+\mathbf{K_{u u}} &\mathbf{K_{u p}}& \mathbf{K_{u G}}& \mathbf{K_{u s}} \\
+\ & \mathbf{K_{p p}}& \mathbf{K_{p G}}& \mathbf{K_{p s}} \\
+\ & & \mathbf{K_{G G}} & \mathbf{K_{G s}} \\
+\ & & & \mathbf{K_{s s}} \\
+\end{bmatrix}
+\end{equation}
 
 The full posterior can be expressed as following, where \(\mathcal{G}^{t-1}\) is defined as the \emph{RHS} of the unsteady stokes equation.
 
@@ -29,30 +203,22 @@ p^{t} \\
 u_b\\
 S^1_L \\
 S^1_p \\
-\mathcal{G}^{t-1} \\
+\mathcal{G}^{t} \\
 s
 \end{bmatrix}
 \sim\mathcal{N}\left(\mathbf{q^{T}}\right)
 \]
 
-Subscripts in math mode are written as $a_b$ and superscripts are written as $a^b$. These can be combined and nested to write expressions such as
 
-\[ T^{i_1 i_2 \dots i_p}_{j_1 j_2 \dots j_q} = T(x^{i_1},\dots,x^{i_p},e_{j_1},\dots,e_{j_q}) \]
+\chapter{Methodology}
 
-We write integrals using $\int$ and fractions using $\frac{a}{b}$. Limits are placed on integrals using superscripts and subscripts:
+\chapter{Results}
 
-\[ \int_0^1 \frac{dx}{e^x} =  \frac{e-1}{e} \]
+1. dt = 0.05 and 5/10 loops work
 
-Lower case Greek letters are written as $\omega$ $\delta$ etc. while upper case Greek letters are written as $\Omega$ $\Delta$.
-This is Nabla, $\nabla$, and Laplace 
+2. dt = 0.01 and 25 loops work (Testing the effect of big and small time interval) {Should be fine}
 
-Mathematical operators are prefixed with a backslash as $\sin(\beta)$, $\cos(\alpha)$, $\log(x)$ etc.
-
-In physics, the mass-energy equivalence is stated 
-by the equation $E=mc^2$, discovered in 1905 by Albert Einstein.
-% This line here is a comment. It will not be typeset in the document.
-
-
+2. dt = 0.01 and 25 and 200, 270, 340 datapoints work (Testing the effect training artificial data sizre) {Should be fine}
 
 Note' right now the optimizer is optimizing the same function on the same value. At the start of each loop, the data should reset so a new hyperparam could be train on new data.
 

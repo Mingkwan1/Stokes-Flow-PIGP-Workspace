@@ -41,6 +41,9 @@ parser.add_argument("--fit", action="store_true", help="force re-optimization")
 parser.add_argument("--no-cache", action="store_true", help="do not read or write cache")
 parser.add_argument("--nm-iter", type=int, default=500)
 parser.add_argument("--tol", type=float, default=1e-4)
+parser.add_argument("--zero-up", action="store_true",
+                    help="force k_up = k_pu = 0 (no u-p cross-covariance); "
+                         "skips ~half the derivative-kernel work")
 
 parser.add_argument("--n-candidate", type=int, default=680,
                     help="size of the random candidate pool that artificial "
@@ -81,11 +84,15 @@ parser.add_argument("--evolution-share-rows", action="store_true",
 
 args = parser.parse_args()
 
-OUTDIR = Path(__file__).resolve().parent / "outputs"/"unsteady_stokes_flow_outputs"
-(OUTDIR / "plots" / "base").mkdir(parents=True, exist_ok=True)
-(OUTDIR / "cache").mkdir(parents=True, exist_ok=True)
+SPECIMEN = "usf_dt0.05_10loops_150artificial"
+
+OUTDIR = Path(__file__).resolve().parent / "outputs"/ SPECIMEN
+(OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
 PLOT_PATH = CACHE_PATH = OUTDIR / "plots" 
-CACHE_PATH = OUTDIR / "cache" / "final_params_unsteady.npz"
+
+CACHE_OUTDIR = Path(__file__).resolve().parent / "cache_outputs"/ SPECIMEN
+(CACHE_OUTDIR).mkdir(parents=True, exist_ok=True)
+CACHE_PATH = CACHE_OUTDIR / "final_params_unsteady.npz"
 
 def Product_Squared_Exponential_Kernel(r, rp, theta):
     gamma, log_lx ,log_ly = theta[0],theta[1],theta[2]
@@ -260,17 +267,23 @@ def plot_training_points(save_path=None):
 theta = lambda t, i: jax.lax.dynamic_slice(t, (3*i,), (3,))
 
 # ---- operator combinators (unprimed = slot 0, primed = slot 1) --------------
-D    = lambda k, a: lambda r, rp, t: jax.grad(k, 0)(r, rp, t)[a]
-Dp   = lambda k, a: lambda r, rp, t: jax.grad(k, 1)(r, rp, t)[a]
-Lap  = lambda k:    lambda r, rp, t: jnp.trace(jax.hessian(k, 0)(r, rp, t))
-Lapp = lambda k:    lambda r, rp, t: jnp.trace(jax.hessian(k, 1)(r, rp, t))
-add  = lambda *ks:  lambda r, rp, t: sum(k(r, rp, t) for k in ks)
-mul  = lambda c, k: lambda r, rp, t: c * k(r, rp, t)
+D    = lambda k, a: None if k is None else (lambda r, rp, t: jax.grad(k, 0)(r, rp, t)[a])
+Dp   = lambda k, a: None if k is None else (lambda r, rp, t: jax.grad(k, 1)(r, rp, t)[a])
+Lap  = lambda k:    None if k is None else (lambda r, rp, t: jnp.trace(jax.hessian(k, 0)(r, rp, t)))
+Lapp = lambda k:    None if k is None else (lambda r, rp, t: jnp.trace(jax.hessian(k, 1)(r, rp, t)))
+mul  = lambda c, k: None if k is None else (lambda r, rp, t: c * k(r, rp, t))
 
-# shift operator, appendix B:  (S_L a)(r) = a(r) - a(r + L e_x)
+def add(*ks):
+    ks = [k for k in ks if k is not None]
+    if not ks:
+        return None
+    if len(ks) == 1:
+        return ks[0]
+    return lambda r, rp, t: sum(k(r, rp, t) for k in ks)
+
 _eL  = jnp.array([L, 0.0])
-S    = lambda k: lambda r, rp, t: k(r, rp, t) - k(r + _eL, rp, t)
-Sp   = lambda k: lambda r, rp, t: k(r, rp, t) - k(r, rp + _eL, t)
+S    = lambda k: None if k is None else (lambda r, rp, t: k(r, rp, t) - k(r + _eL, rp, t))
+Sp   = lambda k: None if k is None else (lambda r, rp, t: k(r, rp, t) - k(r, rp + _eL, t))
 
 ### Base kernel (Total of 6 kernels and 18 parameters)
 
@@ -283,6 +296,10 @@ k_up = [lambda r, rp, t: Product_Squared_Exponential_Kernel(r,  rp, theta(t, 3))
         lambda r, rp, t: Product_Squared_Exponential_Kernel(r,  rp, theta(t, 4))]
 k_pu = k_up
 
+if args.zero_up:
+    k_up = [None, None]
+    k_pu = [None, None]
+    
 k_pp = lambda r, rp, t: Product_Squared_Exponential_Kernel(r, rp, theta(t, 5))
 
 ### Derived kernels 
@@ -332,6 +349,8 @@ k_dsp_G = lambda b:    S(k_pG(b))
 BLOCK_NAMES = ["u1", "u2", "Su1", "Su2", "Sp", "G1", "G2", "s"]
 
 def kmat(k):
+    if k is None:
+        return lambda R1, R2, t: jnp.zeros((R1.shape[0], R2.shape[0]))
     return jax.jit(jax.vmap(jax.vmap(k, (None, 0, None)), (0, None, None)))
 
 def make_blocks(R_G):
@@ -540,6 +559,7 @@ def config_fingerprint(R_G0):
         "points_hash": _arr_hash(R_u_train, R_dSu1, R_dSu2, R_sp, R_G0, R_s),
         "n_artificial": int(args.n_artificial),
         "n_candidate": int(args.n_candidate),
+        "zero_u-p": bool(args.zero_up),
     }
     h = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:16]
     return h, cfg
@@ -739,7 +759,7 @@ for n in range(1, args.n_loop + 1):
         obj_n = jax.jit(partial(neg_log_posterior, y=y, R_G=R_G))
         final_params, _ = run_nelder_mead(final_params, obj_n,
                                           maxiter=args.nm_iter, tol=args.tol)
-
+        print(onp.asarray(final_params))
     # 3) factorize. Reused only when the artificial-data locations are frozen.
     if args.fixed_points and Lc_cached is not None:
         Lc = Lc_cached
