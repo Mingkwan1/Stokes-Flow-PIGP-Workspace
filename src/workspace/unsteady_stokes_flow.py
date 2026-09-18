@@ -45,6 +45,11 @@ parser.add_argument("--zero-up", action="store_true",
                     help="force k_up = k_pu = 0 (no u-p cross-covariance); "
                          "skips ~half the derivative-kernel work")
 
+parser.add_argument("--geometry", choices=["sinusoidal", "plates"],
+                    default="sinusoidal",
+                    help="channel shape: 'sinusoidal' wavy walls (a as set "
+                         "below), or 'plates' for flat parallel plates (a=0, "
+                         "recovering the analytical Poiseuille problem)")
 parser.add_argument("--n-candidate", type=int, default=680,
                     help="size of the random candidate pool that artificial "
                          "points are subsampled from each step; independent "
@@ -52,7 +57,7 @@ parser.add_argument("--n-candidate", type=int, default=680,
 parser.add_argument("--n-loop", type=int, default=10,
                     help="number of backward-Euler steps to march")
 parser.add_argument("--dt", type=float, default=0.01)
-parser.add_argument("--n-artificial", type=int, default=100,
+parser.add_argument("--n-artificial", type=int, default=270,
                     help="artificial data points carried between steps "
                          "(subsampled from the N_f collocation grid)")
 parser.add_argument("--artificial-seed", type=int, default=42)
@@ -84,7 +89,7 @@ parser.add_argument("--evolution-share-rows", action="store_true",
 
 args = parser.parse_args()
 
-SPECIMEN = "usf_dt0.05_10loops_150artificial"
+SPECIMEN = f"usf_dt0.05_10loops_{args.n_artificial}artificial_{args.geometry}_200loop"
 
 OUTDIR = Path(__file__).resolve().parent / "outputs"/ SPECIMEN
 (OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
@@ -115,8 +120,10 @@ def width(x):
 ρ = 1.0
 Q = 1.0 # Flow rate
 L = 2.5 # Characteristic Length
-a = 0.2 # Dimensionless value
 avg_width = 1 # Average width
+a = 0.2 if args.geometry == "sinusoidal" else 0.0   # wall amplitude
+if args.geometry == "plates":
+    print("[config] flat parallel plates: a=0, "f"constant half-width {avg_width/2:.3f}")
 ΔP = -30 # Pressure Diff
 FBODY = -ΔP/L * jnp.array([1.0, 0.0]) # Body force
 MARGIN = 0.999
@@ -433,7 +440,7 @@ theta_init = jnp.array([
    1.2, jnp.log(0.30), jnp.log(0.3),   # u1-u2  
     1.2, jnp.log(0.3), jnp.log(0.3),   # u2-u2
    0.0, jnp.log(0.30), jnp.log(0.30),   # u1-p
-   0.0, jnp.log(0.3), jnp.log(0.3),   # u2-p
+   0.0, jnp.log(0.3), jnp.log(0.30),   # u2-p
     1.2, jnp.log(0.30), jnp.log(0.3),   # p-p
 ])
 

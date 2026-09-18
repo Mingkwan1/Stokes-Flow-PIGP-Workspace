@@ -1,0 +1,19 @@
+[0] Config.pm:328> INFO - This is Biber 2.21
+[0] Config.pm:331> INFO - Logfile is 'u_stokes_flow.blg'
+[106] biber-MSWIN64:342> INFO - === 
+[148] Biber.pm:421> INFO - Reading 'u_stokes_flow.bcf'
+[288] Biber.pm:1002> INFO - Found 4 citekeys in bib section 0
+[312] Biber.pm:4487> INFO - Processing section 0
+[322] Biber.pm:4678> INFO - Looking for bibtex file 'references.bib' for section 0
+[377] bibtex.pm:1713> INFO - LaTeX decoding ...
+[385] bibtex.pm:1519> INFO - Found BibTeX data source 'references.bib'
+[446] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
+[446] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[446] Biber.pm:4307> INFO - Sorting list 'apa/apasortcite//global/global/global' of type 'entry' with template 'apa' and locale 'en-US'
+[446] Biber.pm:4313> INFO - No sort tailoring available for locale 'en-US'
+[461] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
+[461] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[461] Biber.pm:4307> INFO - Sorting list 'apa/global//global/global/global' of type 'entry' with template 'apa' and locale 'en-US'
+[461] Biber.pm:4313> INFO - No sort tailoring available for locale 'en-US'
+[466] bbl.pm:676> INFO - Writing 'u_stokes_flow.bbl' with encoding 'UTF-8'
+[473] bbl.pm:779> INFO - Output to u_stokes_flow.bbl
