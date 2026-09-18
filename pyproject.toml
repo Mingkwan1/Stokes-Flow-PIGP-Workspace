@@ -6,10 +6,11 @@ readme = "README.md"
 authors = [
     { name = "Mingkwan Rattanasiwamok", email = "mingkwan.ratta@gmail.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
-    "jax>=0.4.30",
+    "jax>=0.11.0",
     "jaxopt>=0.8.5",
+    "latexmk>=0.0.2",
     "matplotlib>=3.9.4",
     "optax>=0.2.8",
     "pandas>=2.3.3",

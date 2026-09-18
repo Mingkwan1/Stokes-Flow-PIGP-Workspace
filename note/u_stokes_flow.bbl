@@ -1,0 +1,419 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.3 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{apa/apasortcite//global/global/global}
+    \entry{BirdStewartLightfoot2002}{book}{}{}
+      \name{author}{3}{}{%
+        {{un=0,uniquepart=base,hash=fc1f659d2129d66fb02f7b8ba55cbaa7}{%
+           family={Bird},
+           familyi={B\bibinitperiod},
+           given={R.\bibnamedelimi Byron},
+           giveni={R\bibinitperiod\bibinitdelim B\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=af406ebbf97739580187d5f343c151bb}{%
+           family={Stewart},
+           familyi={S\bibinitperiod},
+           given={Warren\bibnamedelima E.},
+           giveni={W\bibinitperiod\bibinitdelim E\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=be166d98407e7a7411ae7858b79b5326}{%
+           family={Lightfoot},
+           familyi={L\bibinitperiod},
+           given={Edwin\bibnamedelima N.},
+           giveni={E\bibinitperiod\bibinitdelim N\bibinitperiod},
+           givenun=0}}%
+      }
+      \list{publisher}{1}{%
+        {John Wiley \& Sons}%
+      }
+      \strng{namehash}{f451268e4eda2ae6337bd2e7605930d1}
+      \strng{fullhash}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{fullhashraw}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{bibnamehash}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{authorbibnamehash}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{authornamehash}{f451268e4eda2ae6337bd2e7605930d1}
+      \strng{authorfullhash}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{authorfullhashraw}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \field{sortinit}{B}
+      \field{sortinithash}{d7095fff47cda75ca2589920aae98399}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{edition}{2nd}
+      \field{title}{Transport Phenomena}
+      \field{year}{2002}
+    \endentry
+    \entry{Molina2023}{article}{}{}
+      \name{author}{3}{}{%
+        {{un=0,uniquepart=base,hash=d152c4054652f9663830bc66d716407e}{%
+           family={Molina},
+           familyi={M\bibinitperiod},
+           given={J.\bibnamedelimi J.},
+           giveni={J\bibinitperiod\bibinitdelim J\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=5b514b6c871ab580fd62b2ac087f510a}{%
+           family={Ogawa},
+           familyi={O\bibinitperiod},
+           given={K.},
+           giveni={K\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=4488630ad673cc4884e8a1f4996898bd}{%
+           family={Taniguchi},
+           familyi={T\bibinitperiod},
+           given={T.},
+           giveni={T\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{2b4eda560e17b3094168717cf0cba69e}
+      \strng{fullhash}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{fullhashraw}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{bibnamehash}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{authorbibnamehash}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{authornamehash}{2b4eda560e17b3094168717cf0cba69e}
+      \strng{authorfullhash}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{authorfullhashraw}{cd43113f05e7cf9e70b75d7a022a0333}
+      \field{sortinit}{M}
+      \field{sortinithash}{4625c616857f13d17ce56f7d4f97d451}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Machine Learning: Science and Technology}
+      \field{number}{4}
+      \field{title}{Stokesian processes: inferring {S}tokes flows using physics-informed {G}aussian processes}
+      \field{volume}{4}
+      \field{year}{2023}
+      \field{pages}{045013}
+      \range{pages}{1}
+      \verb{doi}
+      \verb 10.1088/2632-2153/ad0286
+      \endverb
+    \endentry
+    \entry{Munoz2012}{article}{}{}
+      \name{author}{5}{}{%
+        {{un=0,uniquepart=base,hash=475f30f5cf44716c86d52c294ff6d9b2}{%
+           family={Muñoz},
+           familyi={M\bibinitperiod},
+           given={D.\bibnamedelimi J.},
+           giveni={D\bibinitperiod\bibinitdelim J\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=8d14f84c0b1740881731aadf0b220bb7}{%
+           family={Springel},
+           familyi={S\bibinitperiod},
+           given={V.},
+           giveni={V\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=33f8f33ee1afbde40f834d22b56dfab8}{%
+           family={Marcus},
+           familyi={M\bibinitperiod},
+           given={R.},
+           giveni={R\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=b88608a3cf44fea67e6bbcabd97914be}{%
+           family={Vogelsberger},
+           familyi={V\bibinitperiod},
+           given={M.},
+           giveni={M\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=a2d60675539f9efe0bcd81b1cce60910}{%
+           family={Hernquist},
+           familyi={H\bibinitperiod},
+           given={L.},
+           giveni={L\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{ff2a314d3cf74192b0b823f2240ef450}
+      \strng{fullhash}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{fullhashraw}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{bibnamehash}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{authorbibnamehash}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{authornamehash}{ff2a314d3cf74192b0b823f2240ef450}
+      \strng{authorfullhash}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{authorfullhashraw}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \field{sortinit}{M}
+      \field{sortinithash}{4625c616857f13d17ce56f7d4f97d451}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Monthly Notices of the Royal Astronomical Society}
+      \field{number}{1}
+      \field{title}{Multi-dimensional, compressible viscous flow on a moving {V}oronoi mesh}
+      \field{volume}{428}
+      \field{year}{2012}
+      \field{pages}{254\bibrangedash 279}
+      \range{pages}{26}
+      \verb{doi}
+      \verb 10.1093/mnras/sts015
+      \endverb
+    \endentry
+    \entry{Raissi2018}{article}{}{}
+      \name{author}{3}{}{%
+        {{un=0,uniquepart=base,hash=95a17c39168b9e6b8812f207b4e036c1}{%
+           family={Raissi},
+           familyi={R\bibinitperiod},
+           given={Maziar},
+           giveni={M\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=197d71332633e07aa578718628fdc405}{%
+           family={Perdikaris},
+           familyi={P\bibinitperiod},
+           given={Paris},
+           giveni={P\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=bfaf154b1f300f885a75adce4c6b773e}{%
+           family={Karniadakis},
+           familyi={K\bibinitperiod},
+           given={George\bibnamedelima Em},
+           giveni={G\bibinitperiod\bibinitdelim E\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{d313186ef90b9962b2cc1c7bc257c3f7}
+      \strng{fullhash}{767366a7d0fdde767496da8385111e76}
+      \strng{fullhashraw}{767366a7d0fdde767496da8385111e76}
+      \strng{bibnamehash}{767366a7d0fdde767496da8385111e76}
+      \strng{authorbibnamehash}{767366a7d0fdde767496da8385111e76}
+      \strng{authornamehash}{d313186ef90b9962b2cc1c7bc257c3f7}
+      \strng{authorfullhash}{767366a7d0fdde767496da8385111e76}
+      \strng{authorfullhashraw}{767366a7d0fdde767496da8385111e76}
+      \field{sortinit}{R}
+      \field{sortinithash}{5e1c39a9d46ffb6bebd8f801023a9486}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{SIAM Journal on Scientific Computing}
+      \field{number}{1}
+      \field{title}{Numerical {G}aussian Processes for Time-dependent and Non-linear Partial Differential Equations}
+      \field{volume}{40}
+      \field{year}{2018}
+      \field{pages}{A172\bibrangedash A198}
+      \range{pages}{-1}
+      \verb{doi}
+      \verb 10.1137/17M1120762
+      \endverb
+    \endentry
+  \enddatalist
+  \datalist[entry]{apa/global//global/global/global}
+    \entry{BirdStewartLightfoot2002}{book}{}{}
+      \name{author}{3}{}{%
+        {{un=0,uniquepart=base,hash=fc1f659d2129d66fb02f7b8ba55cbaa7}{%
+           family={Bird},
+           familyi={B\bibinitperiod},
+           given={R.\bibnamedelimi Byron},
+           giveni={R\bibinitperiod\bibinitdelim B\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=af406ebbf97739580187d5f343c151bb}{%
+           family={Stewart},
+           familyi={S\bibinitperiod},
+           given={Warren\bibnamedelima E.},
+           giveni={W\bibinitperiod\bibinitdelim E\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=be166d98407e7a7411ae7858b79b5326}{%
+           family={Lightfoot},
+           familyi={L\bibinitperiod},
+           given={Edwin\bibnamedelima N.},
+           giveni={E\bibinitperiod\bibinitdelim N\bibinitperiod},
+           givenun=0}}%
+      }
+      \list{publisher}{1}{%
+        {John Wiley \& Sons}%
+      }
+      \strng{namehash}{f451268e4eda2ae6337bd2e7605930d1}
+      \strng{fullhash}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{fullhashraw}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{bibnamehash}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{authorbibnamehash}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{authornamehash}{f451268e4eda2ae6337bd2e7605930d1}
+      \strng{authorfullhash}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \strng{authorfullhashraw}{ec7ef3e4ac0e033ffeaf6ce917aefe67}
+      \field{sortinit}{B}
+      \field{sortinithash}{d7095fff47cda75ca2589920aae98399}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{edition}{2nd}
+      \field{title}{Transport Phenomena}
+      \field{year}{2002}
+    \endentry
+    \entry{Molina2023}{article}{}{}
+      \name{author}{3}{}{%
+        {{un=0,uniquepart=base,hash=d152c4054652f9663830bc66d716407e}{%
+           family={Molina},
+           familyi={M\bibinitperiod},
+           given={J.\bibnamedelimi J.},
+           giveni={J\bibinitperiod\bibinitdelim J\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=5b514b6c871ab580fd62b2ac087f510a}{%
+           family={Ogawa},
+           familyi={O\bibinitperiod},
+           given={K.},
+           giveni={K\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=4488630ad673cc4884e8a1f4996898bd}{%
+           family={Taniguchi},
+           familyi={T\bibinitperiod},
+           given={T.},
+           giveni={T\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{2b4eda560e17b3094168717cf0cba69e}
+      \strng{fullhash}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{fullhashraw}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{bibnamehash}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{authorbibnamehash}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{authornamehash}{2b4eda560e17b3094168717cf0cba69e}
+      \strng{authorfullhash}{cd43113f05e7cf9e70b75d7a022a0333}
+      \strng{authorfullhashraw}{cd43113f05e7cf9e70b75d7a022a0333}
+      \field{sortinit}{M}
+      \field{sortinithash}{4625c616857f13d17ce56f7d4f97d451}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Machine Learning: Science and Technology}
+      \field{number}{4}
+      \field{title}{Stokesian processes: inferring {S}tokes flows using physics-informed {G}aussian processes}
+      \field{volume}{4}
+      \field{year}{2023}
+      \field{pages}{045013}
+      \range{pages}{1}
+      \verb{doi}
+      \verb 10.1088/2632-2153/ad0286
+      \endverb
+    \endentry
+    \entry{Munoz2012}{article}{}{}
+      \name{author}{5}{}{%
+        {{un=0,uniquepart=base,hash=475f30f5cf44716c86d52c294ff6d9b2}{%
+           family={Muñoz},
+           familyi={M\bibinitperiod},
+           given={D.\bibnamedelimi J.},
+           giveni={D\bibinitperiod\bibinitdelim J\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=8d14f84c0b1740881731aadf0b220bb7}{%
+           family={Springel},
+           familyi={S\bibinitperiod},
+           given={V.},
+           giveni={V\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=33f8f33ee1afbde40f834d22b56dfab8}{%
+           family={Marcus},
+           familyi={M\bibinitperiod},
+           given={R.},
+           giveni={R\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=b88608a3cf44fea67e6bbcabd97914be}{%
+           family={Vogelsberger},
+           familyi={V\bibinitperiod},
+           given={M.},
+           giveni={M\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=a2d60675539f9efe0bcd81b1cce60910}{%
+           family={Hernquist},
+           familyi={H\bibinitperiod},
+           given={L.},
+           giveni={L\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{ff2a314d3cf74192b0b823f2240ef450}
+      \strng{fullhash}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{fullhashraw}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{bibnamehash}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{authorbibnamehash}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{authornamehash}{ff2a314d3cf74192b0b823f2240ef450}
+      \strng{authorfullhash}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \strng{authorfullhashraw}{f88f0aa77f2ec0bd2ecfea49359d51a1}
+      \field{sortinit}{M}
+      \field{sortinithash}{4625c616857f13d17ce56f7d4f97d451}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Monthly Notices of the Royal Astronomical Society}
+      \field{number}{1}
+      \field{title}{Multi-dimensional, compressible viscous flow on a moving {V}oronoi mesh}
+      \field{volume}{428}
+      \field{year}{2012}
+      \field{pages}{254\bibrangedash 279}
+      \range{pages}{26}
+      \verb{doi}
+      \verb 10.1093/mnras/sts015
+      \endverb
+    \endentry
+    \entry{Raissi2018}{article}{}{}
+      \name{author}{3}{}{%
+        {{un=0,uniquepart=base,hash=95a17c39168b9e6b8812f207b4e036c1}{%
+           family={Raissi},
+           familyi={R\bibinitperiod},
+           given={Maziar},
+           giveni={M\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=197d71332633e07aa578718628fdc405}{%
+           family={Perdikaris},
+           familyi={P\bibinitperiod},
+           given={Paris},
+           giveni={P\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=bfaf154b1f300f885a75adce4c6b773e}{%
+           family={Karniadakis},
+           familyi={K\bibinitperiod},
+           given={George\bibnamedelima Em},
+           giveni={G\bibinitperiod\bibinitdelim E\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{d313186ef90b9962b2cc1c7bc257c3f7}
+      \strng{fullhash}{767366a7d0fdde767496da8385111e76}
+      \strng{fullhashraw}{767366a7d0fdde767496da8385111e76}
+      \strng{bibnamehash}{767366a7d0fdde767496da8385111e76}
+      \strng{authorbibnamehash}{767366a7d0fdde767496da8385111e76}
+      \strng{authornamehash}{d313186ef90b9962b2cc1c7bc257c3f7}
+      \strng{authorfullhash}{767366a7d0fdde767496da8385111e76}
+      \strng{authorfullhashraw}{767366a7d0fdde767496da8385111e76}
+      \field{sortinit}{R}
+      \field{sortinithash}{5e1c39a9d46ffb6bebd8f801023a9486}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \true{uniqueprimaryauthor}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{SIAM Journal on Scientific Computing}
+      \field{number}{1}
+      \field{title}{Numerical {G}aussian Processes for Time-dependent and Non-linear Partial Differential Equations}
+      \field{volume}{40}
+      \field{year}{2018}
+      \field{pages}{A172\bibrangedash A198}
+      \range{pages}{-1}
+      \verb{doi}
+      \verb 10.1137/17M1120762
+      \endverb
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+

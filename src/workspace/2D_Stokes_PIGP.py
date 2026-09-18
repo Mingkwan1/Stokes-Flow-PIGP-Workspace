@@ -343,13 +343,21 @@ def build_K(theta):
             rows[j][i] = rows[i][j].T       
     return jnp.block(rows)
 
+# theta_init = jnp.array([
+#     1.0, jnp.log(0.50), jnp.log(0.30),   # u1-u1
+#    0.8, jnp.log(0.60), jnp.log(0.35),   # u1-u2  
+#     1.1, jnp.log(0.55), jnp.log(0.32),   # u2-u2
+#    0.0, jnp.log(0.70), jnp.log(0.40),   # u1-p
+#    0.0, jnp.log(0.65), jnp.log(0.38),   # u2-p
+#     0.7, jnp.log(0.80), jnp.log(0.45),   # p-p
+# ])
 theta_init = jnp.array([
-    1.0, jnp.log(0.50), jnp.log(0.30),   # u1-u1
-   0.8, jnp.log(0.60), jnp.log(0.35),   # u1-u2  
-    1.1, jnp.log(0.55), jnp.log(0.32),   # u2-u2
+    1.2, jnp.log(0.50), jnp.log(0.30),   # u1-u1
+   1.2, jnp.log(0.60), jnp.log(0.35),   # u1-u2  
+    1.2, jnp.log(0.55), jnp.log(0.32),   # u2-u2
    0.0, jnp.log(0.70), jnp.log(0.40),   # u1-p
    0.0, jnp.log(0.65), jnp.log(0.38),   # u2-p
-    0.7, jnp.log(0.80), jnp.log(0.45),   # p-p
+   1.2, jnp.log(0.80), jnp.log(0.45),   # p-p
 ])
 
 
