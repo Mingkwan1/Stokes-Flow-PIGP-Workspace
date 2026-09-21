@@ -5,6 +5,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm, LogNorm
 
+SHOW_TITLES = False
+FS_CBAR     = 14       # was 24
+FS_LEGEND   = 12  
+
 # (mean_key, symbol, diverging) - p uses a sequential map because its sign is
 # not physically meaningful: only grad(p) and periodicity are constrained.
 FIELDS = [("u_x", r"$u_x$", True),
@@ -39,7 +43,7 @@ class PlotCtx:
     def save(self, fig, name):
         path = Path(self.outdir) / "plots" / f"{name}_{self.tag}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(path, dpi=150, bbox_inches="tight")
+        fig.savefig(path, dpi=150)
         print(f"[plot] saved {path}")
 
 def _draw_map(ctx, fig, ax, F, symbol, title, diverging=True, cmap=None,
@@ -69,12 +73,14 @@ def _draw_map(ctx, fig, ax, F, symbol, title, diverging=True, cmap=None,
 
     pc = ax.pcolormesh(ctx.XX, ctx.YY, F, cmap=cmap, norm=norm,
                        shading="gouraud")
-    fig.colorbar(pc, ax=ax, label=symbol)
+    cb = fig.colorbar(pc, ax=ax)                                   # CHANGE 10a
+    cb.set_label(symbol, fontsize=FS_CBAR)
+    cb.ax.tick_params(labelsize=plt.rcParams["ytick.labelsize"])
 
     xw = np.linspace(0.0, ctx.L, 400)
     w = ctx.width(xw)
-    ax.plot(xw, w/2, "k", lw=1.4)
-    ax.plot(xw, -w/2, "k", lw=1.4)
+    ax.plot(xw, w/2, "k", lw=2.2)
+    ax.plot(xw, -w/2, "k", lw=2.2)
     if mark_wall:
         ax.scatter(ctx.R_wall[:, 0], ctx.R_wall[:, 1], s=6, c="k",
                    alpha=0.5, zorder=4, label="no-slip points")
@@ -84,22 +90,24 @@ def _draw_map(ctx, fig, ax, F, symbol, title, diverging=True, cmap=None,
                    zorder=5, label="velocity training points")
     ax.set_xlabel("$x$")
     ax.set_ylabel("$y$")
-    ax.set_title(title)
+    if SHOW_TITLES:                        # CHANGE 10c
+        ax.set_title(title)
     ax.set_aspect("equal", adjustable="box")
 
 def _draw_profiles(ctx, ax, F, S, symbol, title):
     for frac, c in zip([0.0, 0.25, 0.5, 0.75],
                        ["tab:blue", "tab:orange", "tab:green", "tab:red"]):
         i = int(frac*(ctx.NX - 1))
-        ax.plot(F[i], ctx.YY[i], color=c, lw=1.8, label=f"$x={ctx.XX[i,0]:.2f}$")
+        ax.plot(F[i], ctx.YY[i], color=c, lw=2.8, label=f"$x={ctx.XX[i,0]:.2f}$")
         if S is not None:
             ax.fill_betweenx(ctx.YY[i], F[i] - 2*S[i], F[i] + 2*S[i],
                              color=c, alpha=0.15, lw=0)
-    ax.axvline(0.0, color="gray", lw=0.6, ls=":")
+    ax.axvline(0.0, color="gray", lw=1.4, ls=":")      # CHANGE 11b
     ax.set_xlabel(symbol)
     ax.set_ylabel("$y$")
-    ax.set_title(title)
-    ax.legend(fontsize=8)
+    if SHOW_TITLES:                                     # CHANGE 11b
+        ax.set_title(title)
+    ax.legend(fontsize=FS_LEGEND) 
     ax.grid(alpha=0.25)
 
 
@@ -109,7 +117,7 @@ def _row_pigp(ctx, fig, axes, mean, std, symbol, diverging, legend=False):
     _draw_map(ctx, fig, axes[0], F, symbol, f"posterior mean {symbol}",
               diverging, mark_wall=(ctx.sparse_pts is None))
     if legend:
-        axes[0].legend(loc="upper right", fontsize=8, framealpha=0.9)
+        axes[0].legend(loc="upper right", fontsize=FS_LEGEND, framealpha=0.9)
     _draw_profiles(ctx, axes[1], F, S, symbol,
                    f"profiles{r' ($\pm2\sigma$)' if S is not None else ''}")
 
@@ -157,16 +165,18 @@ def plot_all(ctx, pigp, fem=None):
     """pigp: {'u_x': (mean, std), 'u_y': (...), 'p': (...)}
        fem:  {'u_x': array, ...} or None.
     Saves each field individually, then one combined figure."""
+    _ADJ = dict(left=0.06, right=0.98, top=0.98, bottom=0.09,
+            wspace=0.12, hspace=0.16)
     if fem is None:
         for name, symbol, div in FIELDS:
-            f, ax = plt.subplots(1, 2, figsize=(14, 4.6),
+            f, ax = plt.subplots(1, 2, figsize=(21, 7.0),
                                  gridspec_kw={"width_ratios": [2.4, 1]})
             _row_pigp(ctx, f, ax, *pigp[name], symbol, div, legend=True)
-            f.tight_layout()
+            f.subplots_adjust(**_ADJ)
             ctx.save(f, name)
             plt.close(f)
 
-        fig, axes = plt.subplots(3, 2, figsize=(14, 12.5),
+        fig, axes = plt.subplots(3, 2, figsize=(21, 18.5),
                                  gridspec_kw={"width_ratios": [2.4, 1]})
         for r, (name, symbol, div) in enumerate(FIELDS):
             _row_pigp(ctx, fig, axes[r], *pigp[name], symbol, div, legend=(r == 0))
@@ -174,18 +184,18 @@ def plot_all(ctx, pigp, fem=None):
     else:
         print("\n[error] PIGP vs FEM:")
         for name, symbol, div in FIELDS:
-            f, ax = plt.subplots(1, 4, figsize=(24, 4.2))
+            f, ax = plt.subplots(1, 4, figsize=(34, 6.5))
             _row_compare(ctx, f, ax, pigp[name][0], fem[name], symbol, name, div)
-            f.tight_layout()
+            f.subplots_adjust(**_ADJ)
             ctx.save(f, f"{name}_vs_fem")
             plt.close(f)
 
-        fig, axes = plt.subplots(3, 4, figsize=(24, 12.5))
+        fig, axes = plt.subplots(3, 4, figsize=(34, 18.5))
         for r, (name, symbol, div) in enumerate(FIELDS):
             _row_compare(ctx, fig, axes[r], pigp[name][0], fem[name],
                          symbol, name, div)
         combined = "combined_fem"
 
-    fig.tight_layout()
+    fig.subplots_adjust(**_ADJ)
     ctx.save(fig, combined)
     return fig

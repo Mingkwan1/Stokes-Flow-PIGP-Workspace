@@ -28,9 +28,47 @@ from functools import partial
 
 import matplotlib.pyplot as plt
 
-
+plt.rcParams.update({
+    "font.size":         14,   # was 26
+    "axes.labelsize":    16,   # was 28
+    "axes.titlesize":    15,   # was 26
+    "xtick.labelsize":   13,   # was 22
+    "ytick.labelsize":   13,   # was 22
+    "legend.fontsize":   13,   # was 22
+    "axes.linewidth":    1.2,  # was 1.8
+    "lines.linewidth":   1.8,  # was 2.6
+    "xtick.major.width": 1.2, "ytick.major.width": 1.2,
+    "xtick.major.size":  5,   "ytick.major.size":  5,
+    "savefig.pad_inches": 0.02,
+})
 
 parser = argparse.ArgumentParser(description="2D Stokes flow PIGP (18 hyperparameters)")
+
+parser.add_argument("--profiles", action="store_true",
+                    help="write wall-normal y-vs-velocity profile plots")
+parser.add_argument("--profile-x-ux", type=float, nargs=2,
+                    default=[0.625, 1.875],
+                    help="x locations for the u_x profiles (default L/4, 3L/4)")
+parser.add_argument("--profile-x-uy", type=float, nargs=2,
+                    default=[0.9375, 1.5625],
+                    help="x locations for the u_y profiles (default 3L/8, 5L/8)")
+parser.add_argument("--steady-tol", type=float, default=1e-3,
+                    help="max|du_x|/max|u_x| below which flow is called steady")
+parser.add_argument("--steady-consecutive", type=int, default=2,
+                    help="consecutive steps that must satisfy --steady-tol")
+parser.add_argument("--profile-n-times", type=int, default=3,
+                    help="how many of the --n-snap snapshots to draw in the "
+                         "profile figure (first/middle/last)")
+# parser.add_argument("--fatol", type=float, default=0.1,
+#                     help="absolute objective tolerance (scipy fatol). "
+#                          "Objective is O(1e3) here, so ~0.1 is ~1e-4 relative.")
+# parser.add_argument("--xatol", type=float, default=0.05,
+#                     help="absolute parameter tolerance (scipy xatol). "
+#                          "Kept looser than fatol on purpose: hyperparameters "
+#                          "commonly have flat/degenerate directions (e.g. "
+#                          "length-scale vs. amplitude trade-off) where x keeps "
+#                          "drifting slightly after the objective has converged.")
+
 parser.add_argument("--fem", action="store_true",
                     help="solve the same problem with dolfinx and compare")
 parser.add_argument("--fem-refit", action="store_true",
@@ -40,7 +78,7 @@ parser.add_argument("--fem-ny", type=int, default=80)
 parser.add_argument("--fit", action="store_true", help="force re-optimization")
 parser.add_argument("--no-cache", action="store_true", help="do not read or write cache")
 parser.add_argument("--nm-iter", type=int, default=500)
-parser.add_argument("--tol", type=float, default=1e-4)
+parser.add_argument("--tol", type=float, default=1e-2)
 parser.add_argument("--zero-up", action="store_true",
                     help="force k_up = k_pu = 0 (no u-p cross-covariance); "
                          "skips ~half the derivative-kernel work")
@@ -89,8 +127,12 @@ parser.add_argument("--evolution-share-rows", action="store_true",
 
 args = parser.parse_args()
 
-SPECIMEN = f"usf_dt0.05_10loops_{args.n_artificial}artificial_{args.geometry}_200loop"
-
+SPECIMEN = (
+    f"usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
+    f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
+    f"fresh_points_{args.fresh_points}_"
+    f"refit_everystep_{args.refit_every_step}"
+)
 OUTDIR = Path(__file__).resolve().parent / "outputs"/ SPECIMEN
 (OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
 PLOT_PATH = CACHE_PATH = OUTDIR / "plots" 
@@ -117,7 +159,7 @@ def width(x):
     return avg_width + 2 * a * jnp.sin (2 * jnp.pi * x / L)
 
 η = 1.0 # Viscosity of the fluid
-ρ = 1.0
+ρ = 1.0 # Density rho
 Q = 1.0 # Flow rate
 L = 2.5 # Characteristic Length
 avg_width = 1 # Average width
@@ -129,15 +171,6 @@ FBODY = -ΔP/L * jnp.array([1.0, 0.0]) # Body force
 MARGIN = 0.999
 
 Δt = args.dt
-
-theta_init = jnp.array([
-    1.2, -1.2, -1.2,   # u1-u1
-   1.2, -1.2, -1.2,   # u1-u2  
-    1.2, -1.2, -1.2,   # u2-u2
-   0.0, -1.2, -1.2,   # u1-p
-   0.0, -1.2, -1.2,   # u2-p
-    1.2, -1.2, -1.2,   # p-p
-])
 
 EPS_JITTER = 1e-3
 
@@ -215,7 +248,6 @@ R_s = jnp.stack([x_s,y_s], axis=-1)
 s = jnp.zeros(N_s)
 
 ###
-
 
 def sample_artificial(n, key, fresh=False, margin=0.98):
     """Draw n artificial-data locations from the candidate pool R_candidate."""
@@ -371,17 +403,6 @@ def make_blocks(R_G):
             ("G2",  R_G),            # backward-Euler momentum, y
             ("s",   R_s)]            # continuity
 
-# blocks = [
-#     ("u1",  R_u_train),                 # no-slip, u_x
-#     ("u2",  R_u_train),                 # no-slip, u_y
-#     ("Su1", R_dSu1),                    # periodicity, u_x
-#     ("Su2", R_dSu2),                    # periodicity, u_y
-#     ("Sp",  R_sp),                      # periodicity, p
-#     ("G1",  R_G1),                      # backward-Euler momentum, x
-#     ("G2",  R_G2),                      # backward-Euler momentum, y
-#     ("s",   R_s),                       # continuity
-# ]
-
 kfn = {
     ("u1","u1"): k_uu[0][0],           ("u1","u2"): k_uu[0][1],
     ("u2","u2"): k_uu[1][1],
@@ -426,14 +447,6 @@ def build_K(theta,R):
             rows[j][i] = rows[i][j].T       
     return jnp.block(rows)
 
-theta_init = jnp.array([
-    1.0, jnp.log(0.50), jnp.log(0.30),   # u1-u1
-   0.8, jnp.log(0.60), jnp.log(0.35),   # u1-u2  
-    1.1, jnp.log(0.55), jnp.log(0.32),   # u2-u2
-   0.0, jnp.log(0.70), jnp.log(0.40),   # u1-p
-   0.0, jnp.log(0.65), jnp.log(0.38),   # u2-p
-    0.7, jnp.log(0.80), jnp.log(0.45),   # p-p
-])
 
 theta_init = jnp.array([
     1.2, jnp.log(0.30), jnp.log(0.30),   # u1-u1
@@ -462,17 +475,6 @@ def n_train(R_G):
     return (2*R_u_train.shape[0] + R_dSu1.shape[0] + R_dSu2.shape[0]
             + R_sp.shape[0] + 2*R_G.shape[0] + R_s.shape[0])
 
-# y = jnp.concatenate([
-#     u1_train,                      # (62,)  no-slip, top wall
-#     u2_train,                      # (62,)  no-slip, bottom wall
-#     s_u_1,                     # (15,)  periodicity, u^x
-#     s_u_2,                     # (15,)  periodicity, u^y
-#     s_p,                       # (15,)  periodicity, p
-#     f_1,                       # (340,) = -ΔP/L
-#     f_2,                       # (340,) = 0
-#     s,                         # (340,) = 0
-# ])
-# print(y)
 
 def inspect_K_blocks(theta,R):
     blocks = make_blocks(R)
@@ -511,13 +513,11 @@ def factorize(theta, R_G):
 
 fun = neg_log_posterior
 
-def run_nelder_mead(init_params, fun, maxiter=500, tol=1e-3):
-    # Simple list to keep track of iterations across callback calls
+def run_nelder_mead(init_params, fun, maxiter=500, tol=1e-1):
     iter_count = [0]
     
     def callback(xk):
         iter_count[0] += 1
-        # Calculate current loss/posterior value
         val = fun(xk)
         print(f"Nelder-Mead Iteration {iter_count[0]:<4} | Value: {val:.4e}")
 
@@ -532,6 +532,63 @@ def run_nelder_mead(init_params, fun, maxiter=500, tol=1e-3):
     
     res = solver.run(init_params)
     return res.params, res.state
+
+# def run_nelder_mead(init_params, fun, maxiter=500, fatol=0.1, xatol=0.05):
+#     iter_count = [0]
+
+#     def callback(xk):
+#         iter_count[0] += 1
+#         val = fun(xk)
+#         print(f"Nelder-Mead Iteration {iter_count[0]:<4} | Value: {val:.4e}")
+
+#     solver = jaxopt.ScipyMinimize(
+#         fun=fun,
+#         method="Nelder-Mead",
+#         tol=None,                       # <-- was tol=tol; None so it can't clobber fatol/xatol
+#         maxiter=maxiter,
+#         callback=callback,
+#         options={"disp": True, "adaptive": True,
+#                  "fatol": fatol, "xatol": xatol},   # <-- decoupled
+#     )
+
+#     res = solver.run(init_params)
+#     return res.params, res.state
+
+def find_steady_state(history, rel_tol=1e-2, n_consecutive=3,
+                      plateau_window=6, plateau_ratio=1.4):
+    """Steady when EITHER
+         (a) rel change < rel_tol for n_consecutive steps, or
+         (b) rel change stops decaying: the median over the last
+             `plateau_window` steps is no better than `plateau_ratio`x
+             the median over the preceding window of the same length.
+    (b) exists because resampling the artificial points each step puts a
+    noise floor under the rel change, so (a) alone can never fire if
+    rel_tol sits below that floor."""
+    rel = []
+    for h in history:
+        scale = abs(h["ux_max"])
+        r = onp.nan if scale < 1e-14 else h["dmax"] / scale
+        h["rel_change"] = r
+        rel.append(r)
+    rel = onp.asarray(rel, dtype=float)
+
+    hits = 0
+    for i, r in enumerate(rel):
+        if onp.isfinite(r) and r < rel_tol:
+            hits += 1
+            if hits >= n_consecutive:
+                return history[i]["t"], history[i]["step"], "tolerance"
+        else:
+            hits = 0
+
+    w = plateau_window
+    for i in range(2*w, len(rel)):
+        recent = onp.nanmedian(rel[i-w+1:i+1])
+        older  = onp.nanmedian(rel[i-2*w+1:i-w+1])
+        if onp.isfinite(recent) and onp.isfinite(older) and older < plateau_ratio*recent:
+            return history[i]["t"], history[i]["step"], "plateau"
+
+    return None, None, None
 
 PARAM_BLOCKS = ["u1u1", "u1u2", "u2u2", "u1p", "u2p", "pp"]
 
@@ -679,9 +736,7 @@ def predict(Lc,theta, y,R_star,R_G, star="u1"):
     std  = jnp.sqrt(jnp.clip(var, 0.0))
     return mean, std
 
-###
-
-# ==================================================================== time loop
+#### ==================================================================== time loop
  
 key = jrd.PRNGKey(args.artificial_seed)
 key, k0 = jrd.split(key)
@@ -717,7 +772,10 @@ if final_params is None:
     print(f"Initial value: {float(obj(theta_init)):.6e}", flush=True)
     t0 = time.time()
     final_params, nit = run_nelder_mead(theta_init, obj,
-                                        maxiter=args.nm_iter, tol=args.tol)
+                                        maxiter=args.nm_iter,  
+                                        tol = args.tol,
+                                        # fatol=args.fatol, xatol=args.xatol
+                                        )
     print(f"Final value:   {float(obj(final_params)):.6e}  "
           f"[{time.time()-t0:.0f}s, {nit} iters]")
     if not args.no_cache:
@@ -739,7 +797,8 @@ print(f"[config] evolution snapshots at steps {SNAP_STEPS} "
       f"(t = {', '.join(f'{s*Δt:.3f}' for s in SNAP_STEPS)})")
 
 print(f"\n{'step':>5}{'t':>8}{'ux_max':>11}{'ux_ctr':>11}{'ux_wall':>11}"
-      f"{'uy_absmax':>11}{'|du|':>11}{'std_max':>10}{'sec':>7}")
+      f"{'uy_absmax':>11}{'|du|':>11}"
+      f"{'2sig_ux':>10}{'cov_ux':>9}{'2sig_uy':>10}{'cov_uy':>9}{'sec':>7}")
 
 u1_test_prev = onp.zeros(NX*NY)
 
@@ -754,6 +813,37 @@ if args.fem:
     fem_good = onp.isfinite(F1_test)
     print(f"[fem] steady reference: u_x max {F1_test[fem_good].max():.5f}, "
           f"centreline {F1_test[:, NY//2][onp.isfinite(F1_test[:, NY//2])].mean():.5f}")
+# fem_steps = sorted(set(SNAP_STEPS) | set(range(5, args.n_loop + 1, 5)))
+
+fem_march = None
+if args.fem:
+    fem_steps_all = list(range(1, args.n_loop + 1))
+    fem_march = fem_stokes.get_unsteady(
+        onp.asarray(R_test), fem_steps_all,
+        OUTDIR / "fem_unsteady_reference.npz", refit=args.fem_refit,
+        L=float(L), a=float(a), avg_width=float(avg_width),
+        eta=float(η), rho=float(ρ), body_force_x=float(FBODY[0]),
+        dt=float(Δt), nx=args.fem_nx, ny=args.fem_ny)
+
+    if args.n_loop >= 10:
+        print("\n" + "=" * 66)
+        print("FEM STEADY-STATE CHECK (every 5th step)")
+        print("=" * 66)
+        steps5 = sorted(s for s in fem_march if s % 5 == 0)
+        fem_t_steady = None
+        for t1s, t2s in zip(steps5, steps5[1:]):
+            steady, rel_ux, rel_uy = fem_stokes.fem_steady_check(
+                fem_march, t1s, t2s, Δt, rel_tol=args.steady_tol)
+            if steady and fem_t_steady is None:
+                fem_t_steady = t2s * Δt
+        if fem_t_steady is not None:
+            print(f"--> FEM reaches steady state by t = {fem_t_steady:.4f}")
+        else:
+            print(f"--> FEM not steady within t <= {steps5[-1]*Δt:.4f}")
+        print("=" * 66)
+    else:
+        print(f"[fem-steady] skipped: n_loop={args.n_loop} < 10 "
+             f"(need at least two 5-step-spaced samples)")
     
 for n in range(1, args.n_loop + 1):
     t_wall = time.time()
@@ -765,7 +855,10 @@ for n in range(1, args.n_loop + 1):
     if args.refit_every_step and n > 1:
         obj_n = jax.jit(partial(neg_log_posterior, y=y, R_G=R_G))
         final_params, _ = run_nelder_mead(final_params, obj_n,
-                                          maxiter=args.nm_iter, tol=args.tol)
+                                          maxiter=args.nm_iter,  
+                                          tol = args.tol,
+                                        #   fatol=args.fatol, xatol=args.xatol
+                                          )
         print(onp.asarray(final_params))
     # 3) factorize. Reused only when the artificial-data locations are frozen.
     if args.fixed_points and Lc_cached is not None:
@@ -789,25 +882,69 @@ for n in range(1, args.n_loop + 1):
     u2_next, _ = predict(Lc, final_params, y, R_G_next, R_G, "u2")
 
     # ---- diagnostics
+    # ---- diagnostics
     U1 = onp.asarray(u1_mean).reshape(NX, NY)
     U2 = onp.asarray(u2_mean).reshape(NX, NY)
+    S1 = onp.asarray(u1_std).reshape(NX, NY)
+    S2 = onp.asarray(u2_std).reshape(NX, NY)
     du = float(onp.abs(onp.asarray(u1_mean) - u1_test_prev).max())
     u1_test_prev = onp.asarray(u1_mean)
     t_now = n * Δt
 
+    def _uncertainty_stats(S, comp_name):
+        i_max = int(onp.argmax(S))
+        x_max, y_max = (float(v) for v in onp.asarray(R_test)[i_max])
+        return {
+            f"twosig_max_{comp_name}":  float(2.0 * S.ravel()[i_max]),
+            f"twosig_mean_{comp_name}": float(2.0 * S.mean()),
+            f"twosig_x_{comp_name}":    x_max,
+            f"twosig_y_{comp_name}":    y_max,
+        }
+
+    diag = dict(step=n, t=t_now,
+               ux_max=U1.max(), ux_ctr=float(U1[:, NY//2].mean()),
+               ux_wall=float(U1[:, 0].mean()),
+               uy_absmax=float(onp.abs(U2).max()), dmax=du,
+               std_max=float(S1.max()))
+    diag.update(_uncertainty_stats(S1, "ux"))
+    diag.update(_uncertainty_stats(S2, "uy"))
+
+    # ---- coverage: fraction of points where the TRUE (FEM) error at this
+    # same step falls within the model's own 95% band -- separately for
+    # u_x and u_y, since they can be calibrated very differently (u_y is
+    # the small, secondary component, so its relative error -- and
+    # plausibly its calibration -- behaves differently from u_x).
+    cov_ux_str = cov_uy_str = "     n/a"
+    if fem_march is not None and n in fem_march:
+        f1n, f2n, _ = fem_march[n]
+        F1n = onp.asarray(f1n).reshape(NX, NY)
+        F2n = onp.asarray(f2n).reshape(NX, NY)
+
+        good_x = fem_good & onp.isfinite(U1) & onp.isfinite(F1n)
+        abs_err_x = onp.abs(U1 - F1n)
+        cov_x = float((abs_err_x[good_x] <= (2.0*S1)[good_x]).mean())
+        diag["coverage_95_ux"]     = cov_x
+        diag["mean_abs_err_ux"]    = float(abs_err_x[good_x].mean())
+        cov_ux_str = f"{100*cov_x:7.1f}%"
+
+        good_y = fem_good & onp.isfinite(U2) & onp.isfinite(F2n)
+        abs_err_y = onp.abs(U2 - F2n)
+        cov_y = float((abs_err_y[good_y] <= (2.0*S2)[good_y]).mean())
+        diag["coverage_95_uy"]     = cov_y
+        diag["mean_abs_err_uy"]    = float(abs_err_y[good_y].mean())
+        cov_uy_str = f"{100*cov_y:7.1f}%"
+
     print(f"{n:>5}{t_now:>8.3f}{U1.max():>11.5f}{U1[:, NY//2].mean():>11.5f}"
           f"{U1[:, 0].mean():>11.2e}{onp.abs(U2).max():>11.5f}{du:>11.2e}"
-          f"{float(u1_std.max()):>10.2e}{time.time()-t_wall:>7.1f}", flush=True)
+          f"{diag['twosig_max_ux']:>10.2e}{cov_ux_str:>9}"
+          f"{diag['twosig_max_uy']:>10.2e}{cov_uy_str:>9}"
+          f"{time.time()-t_wall:>7.1f}", flush=True)
 
-    history.append(dict(step=n, t=t_now,
-                        ux_max=U1.max(), ux_ctr=float(U1[:, NY//2].mean()),
-                        ux_wall=float(U1[:, 0].mean()),
-                        uy_absmax=float(onp.abs(U2).max()), dmax=du,
-                        std_max=float(u1_std.max())))
+    history.append(diag)
 
     # capture snapshot for the evolution figure -- THIS is the line that was missing
     if n in SNAP_STEPS:
-        snapshots.append((n, t_now, U1.copy(), U2.copy()))
+        snapshots.append((n, t_now, U1.copy(), U2.copy(), S1.copy(), S2.copy()))
         if F1_test is not None:
             good = fem_good & onp.isfinite(U1)
             rel = onp.linalg.norm(U1[good] - F1_test[good]) / onp.linalg.norm(F1_test[good])
@@ -841,20 +978,6 @@ for n in range(1, args.n_loop + 1):
 
 # ==================================================================== summary
 
-# if args.evolution:
-#     evolution_plot.plot_evolution(
-#         snapshots, OUTDIR / f"evolution_{fp}.png",
-#         XX=onp.asarray(XX), YY=onp.asarray(YY),
-#         L=float(L), a=float(a), avg_width=float(avg_width),
-#         cmap=args.evolution_cmap,
-#         share_rows=args.evolution_share_rows,
-#         title=(rf"velocity evolution, $\Delta t={Δt}$, backward Euler, "
-#                rf"{args.n_artificial} artificial points/step"))
-#     plt.close("all")
-# else:
-#     print("[evo] skipped (pass --evolution to write it, or run "
-#           "evolution_plot.py against the saved states)")
-
 t_hist  = onp.array([h["t"] for h in history])
 ctr     = onp.array([h["ux_ctr"] for h in history])
 mx      = onp.array([h["ux_max"] for h in history])
@@ -879,22 +1002,111 @@ fig.tight_layout()
 fig.savefig(OUTDIR / f"march_summary_{fp}.png", dpi=140, bbox_inches="tight")
 print(f"\n[plot] {OUTDIR / f'march_summary_{fp}.png'}")
 
+# ==================== (a) COVERAGE / CALIBRATION, ux & uy ====================
+def _plot_calibration(comp_name, symbol):
+    if not any(f"coverage_95_{comp_name}" in h for h in history):
+        print(f"[unc] no FEM per-step data for {comp_name} -- skipped (run with --fem)")
+        return
+    t_cov = onp.array([h["t"] for h in history if f"coverage_95_{comp_name}" in h])
+    cov   = onp.array([h[f"coverage_95_{comp_name}"] for h in history
+                       if f"coverage_95_{comp_name}" in h])
+    twosig_max_h  = onp.array([h[f"twosig_max_{comp_name}"]  for h in history])
+    twosig_mean_h = onp.array([h[f"twosig_mean_{comp_name}"] for h in history])
+
+    fig, ax = plt.subplots(1, 2, figsize=(13, 4.6))
+
+    ax[0].semilogy(t_hist, twosig_max_h,  "o-", label=rf"max $2\sigma$ ({symbol})")
+    ax[0].semilogy(t_hist, twosig_mean_h, "s-", ms=3, label=rf"mean $2\sigma$ ({symbol})")
+    ax[0].set_xlabel("$t$"); ax[0].set_ylabel(rf"$2\sigma({symbol[1:-1]})$")
+    ax[0].legend(); ax[0].grid(alpha=.3)
+
+    ax[1].plot(t_cov, 100*cov, "o-", color="tab:green")
+    ax[1].axhline(95.0, color="r", ls="--", lw=1.5, label="nominal 95%")
+    ax[1].set_ylim(0, 102)
+    ax[1].set_xlabel("$t$")
+    ax[1].set_ylabel(f"points within $2\\sigma$ of FEM  [%]  ({symbol})")
+    ax[1].legend(); ax[1].grid(alpha=.3)
+
+    fig.subplots_adjust(wspace=0.30)
+    out = OUTDIR / f"uncertainty_calibration_{comp_name}_{fp}.png"
+    fig.savefig(out, dpi=150)
+    print(f"[plot] {out}")
+
+_plot_calibration("ux", r"$u_x$")
+_plot_calibration("uy", r"$u_y$")
+# ===============================================================================
+
 onp.savez(OUTDIR / f"march_history_{fp}.npz",
           **{k: onp.array([h[k] for h in history]) for k in history[0]})
-
-fem_results = None
-if args.fem:
-    fem_results = fem_stokes.get_unsteady(
-        onp.asarray(R_test), SNAP_STEPS,
-        OUTDIR / "fem_unsteady_reference.npz", refit=args.fem_refit,
-        L=float(L), a=float(a), avg_width=float(avg_width),
-        eta=float(η), rho=float(ρ), body_force_x=float(FBODY[0]),
-        dt=float(Δt), nx=args.fem_nx, ny=args.fem_ny)
 
 evolution_plot.plot_evolution_vs_fem(
     snapshots, OUTDIR, XX=onp.asarray(XX), YY=onp.asarray(YY),
     L=float(L), a=float(a), avg_width=float(avg_width),
-    fem=fem_results, cmap=args.evolution_cmap, tag=fp, dt=float(Δt),
+    fem=fem_march, cmap=args.evolution_cmap, tag=fp, dt=float(Δt),
     n_artificial=args.n_artificial)
+
+evolution_plot.plot_uncertainty_evolution(
+    snapshots, OUTDIR, XX=onp.asarray(XX), YY=onp.asarray(YY),
+    L=float(L), a=float(a), avg_width=float(avg_width),
+    fem=fem_march, tag=f"ux_{fp}", comp=0, symbol=r"$u_x$")
+
+evolution_plot.plot_uncertainty_evolution(
+    snapshots, OUTDIR, XX=onp.asarray(XX), YY=onp.asarray(YY),
+    L=float(L), a=float(a), avg_width=float(avg_width),
+    fem=fem_march, tag=f"uy_{fp}", comp=1, symbol=r"$u_y$")
+
+if args.profiles:
+    evolution_plot.plot_profiles(
+        snapshots, OUTDIR,
+        XX=onp.asarray(XX), YY=onp.asarray(YY),
+        L=float(L), a=float(a), avg_width=float(avg_width),
+        x_ux=tuple(args.profile_x_ux), x_uy=tuple(args.profile_x_uy),
+        fem=fem_march, tag=fp,
+        n_times=args.profile_n_times)  
+
+t_steady, n_steady, reason = find_steady_state(history,
+                                       rel_tol=args.steady_tol,
+                                       n_consecutive=args.steady_consecutive)
+
+print("\n" + "=" * 66)
+print("STEADY-STATE ASSESSMENT")
+print("=" * 66)
+print(f"  criterion   : max|u_x^n - u_x^(n-1)| / max|u_x^n| < {args.steady_tol:g}")
+print(f"                sustained for {args.steady_consecutive} consecutive steps")
+print(f"  dt = {Δt:g}   steps = {args.n_loop}   t_final = {args.n_loop*Δt:.4f}")
+print("-" * 66)
+print(f"  {'step':>5}{'t':>9}{'ux_max':>12}{'rel change':>14}")
+for h in history:
+    rc = h.get("rel_change", onp.nan)
+    mark = ""
+    if n_steady is not None and h["step"] == n_steady:
+        mark = "   <-- steady"
+    print(f"  {h['step']:>5}{h['t']:>9.4f}{h['ux_max']:>12.6f}"
+          f"{rc:>14.3e}{mark}")
+print("-" * 66)
+if t_steady is not None:
+    hs = history[n_steady - 1]
+    label = ("relative change fell below tolerance" if reason == "tolerance"
+             else "relative change stopped decaying (hit the noise floor)")
+    print(f"  --> STEADY STATE REACHED at t = {t_steady:.4f}  (step {n_steady})")
+    print(f"      criterion fired    : {label}")
+    print(f"      u_x max            : {hs['ux_max']:.6f}")
+    print(f"      u_x centreline mean: {hs['ux_ctr']:.6f}")
+    print(f"      |u_x| at wall row  : {abs(hs['ux_wall']):.3e}")
+else:
+    hf = history[-1]
+    rel_f = hf["dmax"] / max(abs(hf["ux_max"]), 1e-14)
+    print(f"  --> NOT STEADY within t <= {hf['t']:.4f}")
+    print(f"      final relative change: {rel_f:.3e}  (tol {args.steady_tol:g})")
+    print(f"      increase --n-loop, or relax --steady-tol")
+print("=" * 66)
+
+onp.savez(OUTDIR / f"steady_state_{fp}.npz",
+          t_steady=onp.asarray(onp.nan if t_steady is None else t_steady),
+          step_steady=onp.asarray(-1 if n_steady is None else n_steady),
+          rel_tol=onp.asarray(args.steady_tol),
+          reason=onp.asarray("none" if reason is None else reason),
+          t=onp.array([h["t"] for h in history]),
+          rel_change=onp.array([h.get("rel_change", onp.nan) for h in history]))
 
 plt.show()

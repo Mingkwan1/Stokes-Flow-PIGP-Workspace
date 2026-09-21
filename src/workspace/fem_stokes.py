@@ -348,6 +348,30 @@ def solve_unsteady(sample_points, snap_steps, *, L, a, avg_width, eta,
  
     return results
 
+def fem_steady_check(fem_all, t1_step, t2_step, dt, rel_tol=1e-3):
+    """Compare the FEM field at two widely-spaced steps directly.
+
+    Valid for FEM because the march is deterministic (no resampling noise
+    like the PIGP artificial-point draws), so any remaining difference is
+    real transient evolution, not sampling jitter.
+    """
+    u1a, u2a, _ = fem_all[t1_step]
+    u1b, u2b, _ = fem_all[t2_step]
+    good = np.isfinite(u1a) & np.isfinite(u1b)
+
+    rel_ux = (np.linalg.norm(u1a[good] - u1b[good])
+             / np.linalg.norm(u1b[good]))
+    rel_uy_denom = np.linalg.norm(u2b[good])
+    rel_uy = (np.linalg.norm(u2a[good] - u2b[good]) / rel_uy_denom
+             if rel_uy_denom > 1e-14 else 0.0)
+
+    t1, t2 = t1_step*dt, t2_step*dt
+    steady = (rel_ux < rel_tol) and (rel_uy < rel_tol)
+    print(f"[fem-steady] t={t1:.3f} vs t={t2:.3f}: "
+          f"rel_L2(u_x)={rel_ux:.3e}  rel_L2(u_y)={rel_uy:.3e}  "
+          f"{'STEADY' if steady else 'not steady'} (tol {rel_tol:g})")
+    return steady, rel_ux, rel_uy
+
 def get(sample_points, cache_path, *, refit=False, **kwargs):
     """Cached wrapper around solve(). kwargs pass straight through."""
     cache_path = Path(cache_path)
