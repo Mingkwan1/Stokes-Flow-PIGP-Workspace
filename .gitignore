@@ -20,4 +20,9 @@ src/workspace/_init_.py
 u_prediction.png
 
 run_err.log
-run.log
+run.log.d[0-9]*
+.d[0-9]*_nodeinfo
+logs/
+logs_patch/
+.venv/
+*.out
