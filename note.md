@@ -45,6 +45,10 @@ pjsub -x REFIT=1,DT=0.01,NLOOP=50,NSNAP=7,TOL=0.02,FRESH_POINTS=0 run_main.sh
 - Trying to lower the uncertainty jitter. Doing this by adjusting the nelder mead iter, adjusting the artificial points.
 - Parameter is dt
 
+As the uncertainty of run after a certain time tends to jitter in a certain range, we found that such results display a sign of uncertainty incoherence in time propagation prediction.
+We hypothesized that a simple adjustment of artificial training points, along with an increased in NM iteration would help improve the jitter of the uncertainty value.
+
+
 ## 1) Base run
 
 ```
@@ -72,7 +76,6 @@ pjsub -x REFIT=1,DT=0.01,NLOOP=100,NSNAP=5,TOL=0.01,ARTIFICIAL=270 run.sh
 ```
 
 ## 4) Effect of Dt size
-
 
 ```
 pjsub -x REFIT=1,DT=0.05,NLOOP=20,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
