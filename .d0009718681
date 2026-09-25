@@ -1,7 +1,7 @@
 #!/bin/sh
-#PJM -L rscgrp=regular-a
-#PJM -L node=1
-#PJM -L elapse=48:00:00
+#PJM -L rscgrp=share
+#PJM -L gpu=2
+#PJM -L elapse=24:00:00
 #PJM -g jh250081a
 #PJM -j
 #PJM -o logs_20260925/%n.%j.out

@@ -131,7 +131,7 @@ parser.add_argument("--sref-refit", action="store_true",
 args = parser.parse_args()
 
 SPECIMEN = (
-    f"points_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
+    f"20260925_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
     f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
     f"fresh_points_{args.fresh_points}_"
     f"refit_everystep_{args.refit_every_step}"

@@ -52,35 +52,35 @@ We hypothesized that a simple adjustment of artificial training points, along wi
 ## 1) Base run
 
 ```
-pjsub -x REFIT=1,DT=0.01,NLOOP=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
 ```
 
 ## 2) Nelder Mead nm adjutment
 
 ```
-pjsub -x REFIT=1,DT=0.01,NLOOP=50,NSNAP=5,TOL=0.01 run.sh
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=200,NSNAP=5,TOL=0.01 run.sh
 ```
 
 ```
-pjsub -x REFIT=1,DT=0.01,NLOOP=150,NSNAP=5,TOL=0.01 run.sh
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=500,NSNAP=5,TOL=0.01 run.sh
 ```
 
 ## 3) Artificial points changes
 
 ```
-pjsub -x REFIT=1,DT=0.01,NLOOP=100,NSNAP=5,TOL=0.01,ARTIFICIAL=380 run.sh
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=380 run.sh
 ```
 
 ```
-pjsub -x REFIT=1,DT=0.01,NLOOP=100,NSNAP=5,TOL=0.01,ARTIFICIAL=270 run.sh
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=270 run.sh
 ```
 
 ## 4) Effect of Dt size
 
 ```
-pjsub -x REFIT=1,DT=0.05,NLOOP=20,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+pjsub -x REFIT=1,DT=0.05,NLOOP=20,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
 ```
 
 ```
-pjsub -x REFIT=1,DT=0.005,NLOOP=200,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+pjsub -x REFIT=1,DT=0.005,NLOOP=200,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
 ```
