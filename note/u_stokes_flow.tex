@@ -590,7 +590,7 @@ are both zero. The training set consists of \(340\times2\) points for \(\mathcal
 \(\boldsymbol{u_b}\), \(15\times2\) points for \(S^1_L\boldsymbol{u}\), and \(15\)
 points for \(S^1_L\boldsymbol{p}\), matching \textcite{Molina2023}. At each step, hyperparameters are optimized as
 described in Section~\ref{sec:optimization}. \(500\) test points are predicted, of
-which \(340\) are randomly sampled from the predicted output to serve as the
+which \(270\) points are randomly sampled from the predicted output to serve as the
 artificial \(\mathcal{G}\) training data for the next step.
 \vspace{0.3cm}
 In every subsequent loop, the number of training points remains the same as in the
@@ -646,8 +646,8 @@ Section~\ref{sec:uncertainty-propagation}.
 This chapter presents the inferred velocity field for pressure-driven, unsteady Stokes
 flow in two two-dimensional geometries, using the time-marching physics-informed
 Gaussian process developed in Chapter~\ref{ch:methodology}. Section~\ref{sec:results-plates}
-considers flow between two parallel plates, where a closed-form analytical solution is
-available for validation. Section~\ref{sec:results-sinusoidal} considers flow through a
+considers flow between two parallel plates, where a closed-form analytical solution was used for validation. 
+Section~\ref{sec:results-sinusoidal} considers flow through a
 sinusoidal channel, following the geometry of \textcite{Molina2023}, where a
 finite-element (FEM) solution is instead used as the reference.
 
@@ -655,7 +655,7 @@ finite-element (FEM) solution is instead used as the reference.
 \section{Pressure-driven flow between parallel plates}
 \label{sec:results-plates}
 
-For an impulsively started plane Poiseuille flow between two stationary plates,
+For Poiseuille flow between two stationary plates,
 initially at rest, with a pressure gradient \(dp/dx\) suddenly applied at \(t=0\), the
 unsteady Stokes equations \eqref{eq:unsteady} admit the closed-form series solution
 of \textcite{Munoz2012} in section 4.3. Writing the velocity as the sum of the steady plane
@@ -675,7 +675,7 @@ specializing their result to two stationary plates (\(U=0\)) over the domain
 \noindent which converges to the steady plane Poiseuille profile as \(t\to\infty\). Here, 
 the value of \(dp/dx = -12.0\). This analytical solution provides a direct, independent check of the PIGP solution.
 
-The time step was \(\Delta t = 0.05\), with ten time-marching loops from \(t=0\), using
+The time step was \(\Delta t = 0.01\), with \(50\) time-marching loops from \(t=0\), using
 \(270\) artificial training points per step (Section~\ref{sec:inference-algorithm}).
 Figure~\ref{fig:evolution_ux_plates} shows the predicted \(u_x\) field at five time
 snapshots, compared against Equation~\eqref{eq:analytical-plates}.
@@ -716,7 +716,7 @@ sinusoidal channel of width
 solution, using both the absolute error \(|\Delta u| = |u_{\mathrm{PIGP}} -
 u_{\mathrm{FEM}}|\) and the relative error \(|\Delta u|/|u_{\mathrm{FEM}}|\) to assess
 accuracy. The time step was \(\Delta t = 0.05\), with ten time-marching loops from
-\(t=0\), using \(340\) artificial training points per step (Section~\ref{sec:inference-algorithm}).
+\(t=0\), using \(270\) artificial training points per step (Section~\ref{sec:inference-algorithm}).
 
 Figures~\ref{fig:evolution_ux_sinusoidal} and \ref{fig:evolution_uy_sinusoidal} show
 the predicted \(u_x\) and \(u_y\) fields at five time snapshots, compared against FEM.
@@ -725,7 +725,7 @@ the predicted \(u_x\) and \(u_y\) fields at five time snapshots, compared agains
 \centering
 \includegraphics[width=\textwidth]{../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png}
 \caption{Evolution of \(u_x\) for pressure-driven flow through a sinusoidal channel,
-\(\Delta t=0.05\), 10 loops, 340 artificial points per step. Top row: PIGP posterior
+\(\Delta t=0.05\), 10 loops, 270 artificial points per step. Top row: PIGP posterior
 mean. Middle row: FEM reference. Bottom two rows: absolute and relative error.}
 \label{fig:evolution_ux_sinusoidal}
 \end{figure}
@@ -734,7 +734,7 @@ mean. Middle row: FEM reference. Bottom two rows: absolute and relative error.}
 \centering
 \includegraphics[width=\textwidth]{../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png}
 \caption{Evolution of \(u_y\) for pressure-driven flow through a sinusoidal channel,
-\(\Delta t=0.05\), 10 loops, 340 artificial points per step. Top row: PIGP posterior
+\(\Delta t=0.05\), 10 loops, 270 artificial points per step. Top row: PIGP posterior
 mean. Middle row: FEM reference. Bottom two rows: absolute and relative error.}
 \label{fig:evolution_uy_sinusoidal}
 \end{figure}

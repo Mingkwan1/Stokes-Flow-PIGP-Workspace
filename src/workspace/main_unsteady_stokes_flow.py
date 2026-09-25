@@ -23,6 +23,7 @@ from pathlib import Path
 import plotting
 import fem_stokes
 import evolution_plot
+import stokes_flow_pigp as sfp
 
 from functools import partial
 
@@ -59,15 +60,6 @@ parser.add_argument("--steady-consecutive", type=int, default=2,
 parser.add_argument("--profile-n-times", type=int, default=3,
                     help="how many of the --n-snap snapshots to draw in the "
                          "profile figure (first/middle/last)")
-# parser.add_argument("--fatol", type=float, default=0.1,
-#                     help="absolute objective tolerance (scipy fatol). "
-#                          "Objective is O(1e3) here, so ~0.1 is ~1e-4 relative.")
-# parser.add_argument("--xatol", type=float, default=0.05,
-#                     help="absolute parameter tolerance (scipy xatol). "
-#                          "Kept looser than fatol on purpose: hyperparameters "
-#                          "commonly have flat/degenerate directions (e.g. "
-#                          "length-scale vs. amplitude trade-off) where x keeps "
-#                          "drifting slightly after the objective has converged.")
 
 parser.add_argument("--fem", action="store_true",
                     help="solve the same problem with dolfinx and compare")
@@ -82,6 +74,11 @@ parser.add_argument("--tol", type=float, default=1e-2)
 parser.add_argument("--zero-up", action="store_true",
                     help="force k_up = k_pu = 0 (no u-p cross-covariance); "
                          "skips ~half the derivative-kernel work")
+parser.add_argument("--steady-ref-tol", type=float, default=1e-2,
+                    help="rel L2 to the steady FEM below which the flow is "
+                         "called steady (dt-invariant criterion)")
+parser.add_argument("--steady-window-t", type=float, default=0.05,
+                    help="time span the --steady-ref-tol criterion must hold")
 
 parser.add_argument("--geometry", choices=["sinusoidal", "plates"],
                     default="sinusoidal",
@@ -125,10 +122,16 @@ parser.add_argument("--evolution-cmap", default="RdBu_r",
 parser.add_argument("--evolution-share-rows", action="store_true",
                         help="put u_x and u_y on one common colour scale")
 
+parser.add_argument("--sref-nm-iter", type=int, default=500,
+                    help="Nelder-Mead iterations for the one-off steady PIGP fit")
+parser.add_argument("--sref-nm-tol", type=float, default=1e-2)
+parser.add_argument("--sref-refit", action="store_true",
+                    help="force re-fitting the cached steady PIGP reference")
+
 args = parser.parse_args()
 
 SPECIMEN = (
-    f"patch_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
+    f"points_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
     f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
     f"fresh_points_{args.fresh_points}_"
     f"refit_everystep_{args.refit_every_step}"
@@ -214,7 +217,7 @@ R_sp = jnp.stack([x_s_p,y_s_p], axis=-1)
 
 s_p = jnp.zeros_like(y_s_p)
 
-## 4.) Governing equations f (337 x 2 points)
+## 4.) Governing equations f,g (337 x 2 points)
 
 N_f = N_s = 340
 
@@ -507,13 +510,16 @@ def inspect_K_blocks(theta,R):
 # inspect_K_blocks(theta_init)
 
 def neg_log_posterior(theta, y, R_G):
+    _DEAD_BLOCKS = (3, 4) if args.zero_up else ()
+    _ACTIVE_IDX = jnp.array([i for i in range(18) if (i // 3) not in _DEAD_BLOCKS])
     ntrain=y.shape[0]
     K  = build_K(theta,R_G) + (EPS_JITTER**2) * jnp.eye(ntrain)
     Lc = jnp.linalg.cholesky(K)
     v  = solve_triangular(Lc, y, lower=True)
+    jeffreys_nlp = jnp.sum(theta[_ACTIVE_IDX])
     return (0.5*jnp.dot(v, v) + jnp.sum(jnp.log(jnp.diag(Lc)))
             + 0.5*ntrain*jnp.log(2.0*jnp.pi)
-            + 0.5*jnp.sum(theta[0::3]**2)/(2.0**2))
+            + jeffreys_nlp) # Jeffreys prior    
 
 @jax.jit
 def factorize(theta, R_G):
@@ -581,6 +587,30 @@ def find_steady_state(history, rel_tol=1e-2, n_consecutive=3,
     return None, None, None
 
 PARAM_BLOCKS = ["u1u1", "u1u2", "u2u2", "u1p", "u2p", "pp"]
+
+def first_sustained(hist, key, tol, dt, window_t):
+    """First t at which hist[key] < tol AND stays below for >= window_t
+    time units. Time-based (not step-count) -> dt-invariant.
+    Entries missing `key` or non-finite are ignored.
+    Returns None if never reached or not enough data to confirm."""
+    pts = [(h["t"], h[key]) for h in hist
+           if key in h and onp.isfinite(h[key])]
+    if not pts:
+        return None
+    t = onp.array([p[0] for p in pts])
+    v = onp.array([p[1] for p in pts])
+    below = v < tol
+    eps = 0.5 * dt
+    for i in range(len(t)):
+        if not below[i]:
+            continue
+        t_end = t[i] + window_t
+        if t[-1] < t_end - eps:          # run ended before window closed
+            return None
+        in_win = (t >= t[i]) & (t <= t_end + eps)
+        if below[in_win].all():
+            return float(t[i])
+    return None
 
 def _arr_hash(*arrays):
     """Content hash of point sets - catches a moved collocation grid that
@@ -674,6 +704,19 @@ eta_line = jnp.linspace(-TEST_MARGIN, TEST_MARGIN, NY) * 0.5
 XX, EE = jnp.meshgrid(x_line, eta_line, indexing="ij")
 YY = EE * width(XX)
 R_test = jnp.stack([XX.ravel(), YY.ravel()], axis=-1)
+
+# ---- steady PIGP reference (cached; independent of dt / n_loop) ----------
+SREF = sfp.get_steady_reference(
+    R_test,
+    R_wall=R_u_train, R_dSu1=R_dSu1, R_dSu2=R_dSu2, R_sp=R_sp,
+    R_f=R_f1, R_s=R_s, body_force=FBODY,
+    eta=float(η), L=float(L), a=float(a), avg_width=float(avg_width),
+    theta_init=theta_init, eps_jitter=EPS_JITTER, zero_up=args.zero_up,
+    nm_iter=args.sref_nm_iter, nm_tol=args.sref_nm_tol,
+    cache_dir=Path(__file__).resolve().parent / "cache_outputs" / "steady_pigp",
+    refit=args.sref_refit)
+U1_SREF = SREF["u1"].reshape(NX, NY)
+U2_SREF = SREF["u2"].reshape(NX, NY)
 
 key = jrd.PRNGKey(args.artificial_seed)
 key, k0 = jrd.split(key)
@@ -845,7 +888,8 @@ print(f"\n{'step':>5}{'t':>8}{'ux_max':>11}{'ux_ctr':>11}{'ux_wall':>11}"
 
 u1_test_prev = onp.zeros(NX*NY)
 
-F1_test = None
+F1_test = F2_test = None
+
 if args.fem:
     f1, f2, fpres = fem_stokes.get(
         onp.asarray(R_test), OUTDIR / "fem_reference.npz", refit=args.fem_refit,
@@ -853,12 +897,14 @@ if args.fem:
         eta=float(η), body_force_x=float(FBODY[0]),
         nx=args.fem_nx, ny=args.fem_ny)
     F1_test = onp.asarray(f1).reshape(NX, NY)
+    F2_test = onp.asarray(f2).reshape(NX, NY)
     fem_good = onp.isfinite(F1_test)
     print(f"[fem] steady reference: u_x max {F1_test[fem_good].max():.5f}, "
           f"centreline {F1_test[:, NY//2][onp.isfinite(F1_test[:, NY//2])].mean():.5f}")
 # fem_steps = sorted(set(SNAP_STEPS) | set(range(5, args.n_loop + 1, 5)))
 
 fem_march = None
+fem_t_steady = None 
 if args.fem:
     fem_steps_all = list(range(1, args.n_loop + 1))
     fem_march = fem_stokes.get_unsteady(
@@ -868,25 +914,23 @@ if args.fem:
         eta=float(η), rho=float(ρ), body_force_x=float(FBODY[0]),
         dt=float(Δt), nx=args.fem_nx, ny=args.fem_ny)
 
-    if args.n_loop >= 10:
-        print("\n" + "=" * 66)
-        print("FEM STEADY-STATE CHECK (every 5th step)")
-        print("=" * 66)
-        steps5 = sorted(s for s in fem_march if s % 5 == 0)
-        fem_t_steady = None
-        for t1s, t2s in zip(steps5, steps5[1:]):
-            steady, rel_ux, rel_uy = fem_stokes.fem_steady_check(
-                fem_march, t1s, t2s, Δt, rel_tol=args.steady_tol)
-            if steady and fem_t_steady is None:
-                fem_t_steady = t2s * Δt
-        if fem_t_steady is not None:
-            print(f"--> FEM reaches steady state by t = {fem_t_steady:.4f}")
-        else:
-            print(f"--> FEM not steady within t <= {steps5[-1]*Δt:.4f}")
-        print("=" * 66)
-    else:
-        print(f"[fem-steady] skipped: n_loop={args.n_loop} < 10 "
-             f"(need at least two 5-step-spaced samples)")
+    fem_hist = []
+    for s in sorted(fem_march):
+        Fn1 = onp.asarray(fem_march[s][0]).reshape(NX, NY)
+        Fn2 = onp.asarray(fem_march[s][1]).reshape(NX, NY)
+        fem_hist.append({"t": s * Δt,
+                         "rel": sfp.rel_l2_velocity(Fn1, Fn2, F1_test, F2_test)})
+    fem_t_steady = first_sustained(fem_hist, "rel", args.steady_ref_tol,
+                                   Δt, args.steady_window_t)
+    print("\n" + "=" * 66)
+    print("FEM STEADY STATE (rel L2 to steady FEM, dt-invariant)")
+    print("=" * 66)
+    k = max(1, int(round(0.05 / Δt)))                 # print every 0.05 time
+    for h in fem_hist[k - 1::k]:
+        print(f"  t = {h['t']:.4f}   rel L2 = {h['rel']:.4e}")
+    print("--> FEM steady at " + ("not reached" if fem_t_steady is None
+                                  else f"t = {fem_t_steady:.4f}"))
+    print("=" * 66)
     
 for n in range(1, args.n_loop + 1):
     t_wall = time.time()
@@ -951,7 +995,8 @@ for n in range(1, args.n_loop + 1):
                std_max=float(S1.max()))
     diag.update(_uncertainty_stats(S1, "ux"))
     diag.update(_uncertainty_stats(S2, "uy"))
-
+    diag["rel_sref"]    = sfp.rel_l2_velocity(U1, U2, U1_SREF, U2_SREF)
+    diag["rel_ux_sref"] = sfp.rel_l2_velocity(U1, None, U1_SREF, None)
     # ---- coverage: fraction of points where the TRUE (FEM) error at this
     # same step falls within the model's own 95% band -- separately for
     # u_x and u_y, since they can be calibrated very differently (u_y is
@@ -986,13 +1031,15 @@ for n in range(1, args.n_loop + 1):
     history.append(diag)
 
     # capture snapshot for the evolution figure -- THIS is the line that was missing
+    if F1_test is not None:
+        good = fem_good & onp.isfinite(U1)
+        rel = float(onp.linalg.norm(U1[good] - F1_test[good])
+                    / onp.linalg.norm(F1_test[good]))
+        history[-1]["fem_rel_l2"] = rel
     if n in SNAP_STEPS:
         snapshots.append((n, t_now, U1.copy(), U2.copy(), S1.copy(), S2.copy()))
         if F1_test is not None:
-            good = fem_good & onp.isfinite(U1)
-            rel = onp.linalg.norm(U1[good] - F1_test[good]) / onp.linalg.norm(F1_test[good])
             print(f"      [fem] t={t_now:.3f}  rel L2 vs steady = {rel:.4f}")
-            history[-1]["fem_rel_l2"] = rel
     last = (n == args.n_loop)
     if last or (args.plot_every and n % args.plot_every == 0):
         ctx = plotting.PlotCtx(
@@ -1154,7 +1201,8 @@ onp.savez(OUTDIR / f"steady_state_{fp}.npz",
           t=onp.array([h["t"] for h in history]),
           rel_change=onp.array([h.get("rel_change", onp.nan) for h in history]))
 # ==================================================================== report
-def write_report(history, fp, args, t_steady, n_steady, reason, outdir):
+def write_report(history, fp, args, t_steady, n_steady, reason, outdir,
+                 steady_ref=None):
     """Single human-readable .txt + machine-readable .csv summarizing the
     whole march: per-step errors/uncertainty, calibration, steady-state."""
     import csv
@@ -1239,7 +1287,7 @@ def write_report(history, fp, args, t_steady, n_steady, reason, outdir):
         lines.append("")
 
     lines.append("-" * 78)
-    lines.append("STEADY-STATE ASSESSMENT")
+    lines.append("STEP-CHANGE DIAGNOSTIC (NOT dt-invariant -- do not compare across dt)")
     lines.append("-" * 78)
     lines.append(f"  criterion : max|du_x|/max|u_x| < {args.steady_tol:g}, "
                   f"{args.steady_consecutive} consecutive steps")
@@ -1255,11 +1303,51 @@ def write_report(history, fp, args, t_steady, n_steady, reason, outdir):
         rel_f = hf["dmax"] / max(abs(hf["ux_max"]), 1e-14)
         lines.append(f"  RESULT    : NOT steady within t <= {hf['t']:.4f}")
         lines.append(f"  final rel change: {rel_f:.3e}  (tol {args.steady_tol:g})")
+    if steady_ref is not None:
+        fmt = lambda v: "not reached" if v is None else f"t = {v:.4f}"
+        lines.append("")
+        lines.append("-" * 78)
+        lines.append("STEADY TIME t*  (each method vs its OWN steady solution, same dt)")
+        lines.append("-" * 78)
+        lines.append("  metric    : ||(u_x,u_y)^n - (u_x,u_y)_steady||_2 / ||(u_x,u_y)_steady||_2")
+        lines.append(f"  criterion : < {args.steady_ref_tol:g}, held for {args.steady_window_t:g} time units")
+        lines.append(f"  dt        : {Δt:g} (PIGP and FEM)")
+        lines.append(f"  PIGP (ref = steady PIGP) : {fmt(steady_ref['pigp'])}")
+        lines.append(f"  FEM  (ref = steady FEM)  : {fmt(steady_ref['fem'])}")
+        if steady_ref["pigp"] is not None and steady_ref["fem"] is not None:
+            err = steady_ref["pigp"] - steady_ref["fem"]
+            lines.append(f"  error t*                 : {err:+.4f}  "
+                         f"({100*err/steady_ref['fem']:+.1f}% of FEM, resolution ±{Δt:g})")
+        if steady_ref["ref_gap"] is not None:
+            lines.append(f"  steady PIGP vs steady FEM: rel L2 = {steady_ref['ref_gap']:.4e}")
     lines.append("=" * 78)
 
     with open(txt_path, "w") as f:
         f.write("\n".join(lines) + "\n")
     print(f"[report] wrote {txt_path}")
 
-write_report(history, fp, args, t_steady, n_steady, reason, OUTDIR)
+steady_ref = None
+
+t_pigp = first_sustained(history, "rel_sref", args.steady_ref_tol,
+                         Δt, args.steady_window_t)
+steady_ref = {"pigp": t_pigp, "fem": fem_t_steady, "ref_gap": None}
+if F1_test is not None:
+    steady_ref["ref_gap"] = sfp.rel_l2_velocity(U1_SREF, U2_SREF, F1_test, F2_test)
+
+fmt = lambda v: "not reached" if v is None else f"t = {v:.4f}"
+print("\n" + "=" * 66)
+print("STEADY TIME t*  (each method vs its own steady solution)")
+print("=" * 66)
+print(f"  dt (PIGP = FEM) : {Δt:g}")
+print(f"  PIGP            : {fmt(t_pigp)}")
+if args.fem:
+    print(f"  FEM             : {fmt(fem_t_steady)}")
+    if t_pigp is not None and fem_t_steady is not None:
+        err = t_pigp - fem_t_steady
+        print(f"  error t*        : {err:+.4f}  ({100*err/fem_t_steady:+.1f}% of FEM)")
+    print(f"  steady PIGP vs steady FEM (rel L2): {steady_ref['ref_gap']:.4e}")
+print("=" * 66)
+
+write_report(history, fp, args, t_steady, n_steady, reason, OUTDIR,
+             steady_ref=steady_ref)
 plt.show()

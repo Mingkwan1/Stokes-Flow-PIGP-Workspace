@@ -1,10 +1,10 @@
 #!/bin/sh
 #PJM -L rscgrp=regular-a
 #PJM -L node=1
-#PJM -L elapse=12:00:00
+#PJM -L elapse=24:00:00
 #PJM -g jh250081a
 #PJM -j
-#PJM -o logs_patch/%n.%j.out
+#PJM -o logs_new/%n.%j.out
 
 export PATH="/work/jh250081a/n15005/local/bin:$PATH"
 export UV_CACHE_DIR="/work/jh250081a/n15005/.cache/uv"
@@ -19,10 +19,14 @@ REFIT_FLAG=""
 if [ "${REFIT:-1}" = "1" ]; then
   REFIT_FLAG="--refit-every-step"
 fi
+FRESH_POINTS_FLAG=""
+if [ "${FRESH_POINTS:-1}" = "1" ]; then
+  FRESH_POINTS_FLAG="--fresh-points"
+fi
 
 GEOMETRY="${SHAPE:-sinusoidal}"
 
-uv run python ./src/workspace/patched_unsteady_stokes_flow.py \
+uv run python ./src/workspace/main_unsteady_stokes_flow.py \
   --profiles --evolution --fem --geometry "$GEOMETRY"\
-  --n-candidate 500 --n-loop "${NLOOP:-50}" --dt "${DT:-0.01}" --fresh-points \
+  --n-candidate 500 --n-loop "${NLOOP:-50}" --dt "${DT:-0.01}" $FRESH_POINTS_FLAG \
   --nm-iter "${NMITER:-50}" $REFIT_FLAG --n-snap "${NSNAP:-7}" --tol "${TOL:-1}" --profile-n-times 5
