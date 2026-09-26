@@ -45,6 +45,7 @@ plt.rcParams.update({
 
 parser = argparse.ArgumentParser(description="2D Stokes flow PIGP (18 hyperparameters)")
 
+# Profile Plotting
 parser.add_argument("--profiles", action="store_true",
                     help="write wall-normal y-vs-velocity profile plots")
 parser.add_argument("--profile-x-ux", type=float, nargs=2,
@@ -61,12 +62,21 @@ parser.add_argument("--profile-n-times", type=int, default=3,
                     help="how many of the --n-snap snapshots to draw in the "
                          "profile figure (first/middle/last)")
 
+# FEM options
 parser.add_argument("--fem", action="store_true",
                     help="solve the same problem with dolfinx and compare")
 parser.add_argument("--fem-refit", action="store_true",
                     help="force re-solving the FEM even if a valid cache exists")
 parser.add_argument("--fem-nx", type=int, default=200)
 parser.add_argument("--fem-ny", type=int, default=80)
+
+# Propagation
+parser.add_argument("--eps-jitter", type=float, default=0.0,
+                    help="numerical jitter eps (K -> K  eps^2 I). 0 = K exactly "
+                         "as Raissi eq.(12) with noiseless boundary data. Molina: 1e-3")
+parser.add_argument("--propagate", choices=["on", "off"], default="off",
+                    help="Raissi eq.(13) term Q K^-1 M K^-1 Q^T. Off: Sigma^{n-1} "
+                         "is already in K, so 'on' counts it twice")
 parser.add_argument("--fit", action="store_true", help="force re-optimization")
 parser.add_argument("--no-cache", action="store_true", help="do not read or write cache")
 parser.add_argument("--nm-iter", type=int, default=500)
@@ -135,6 +145,7 @@ SPECIMEN = (
     f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
     f"fresh_points_{args.fresh_points}_"
     f"refit_everystep_{args.refit_every_step}"
+    f"_eps_{args.eps_jitter}_zeroup_{args.zero_up}"
 )
 OUTDIR = Path(__file__).resolve().parent / "outputs"/ SPECIMEN
 (OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
@@ -175,7 +186,7 @@ MARGIN = 0.999
 
 Δt = args.dt
 
-EPS_JITTER = 1e-3
+EPS_JITTER = args.eps_jitter
 
 ## 1.) velocity at bounday u_b (62 x 2 points)
 
@@ -470,7 +481,14 @@ theta_init = jnp.array([
    0.0, jnp.log(0.3), jnp.log(0.30),   # u2-p
     1.2, jnp.log(0.30), jnp.log(0.3),   # p-p
 ])
+DEAD_BLOCKS = (3, 4) if args.zero_up else ()          # u1-p, u2-p
+ACTIVE_IDX = onp.array([i for i in range(theta_init.shape[0])
+                        if i // 3 not in DEAD_BLOCKS])
 
+def expand_theta(theta_active, template=theta_init):
+    """Active vector -> full 18-vector. Dead entries keep the template value;
+    they are never read, because k_up = k_pu = None under --zero-up."""
+    return template.at[ACTIVE_IDX].set(theta_active)
 def make_y(u1_prev, u2_prev):
     """u{1,2}_prev: u^{n-1} evaluated at R_G1 / R_G2."""
     return jnp.concatenate([
@@ -509,46 +527,83 @@ def inspect_K_blocks(theta,R):
 
 # inspect_K_blocks(theta_init)
 
-def neg_log_posterior(theta, y, R_G):
-    _DEAD_BLOCKS = (3, 4) if args.zero_up else ()
-    _ACTIVE_IDX = jnp.array([i for i in range(18) if (i // 3) not in _DEAD_BLOCKS])
-    ntrain=y.shape[0]
-    K  = build_K(theta,R_G) + (EPS_JITTER**2) * jnp.eye(ntrain)
-    Lc = jnp.linalg.cholesky(K)
+def g_index(R_G):
+    """Rows of K belonging to G1 then G2 (same order as Sigma: [u1 pts; u2 pts])."""
+    o = block_slices(R_G)
+    return jnp.concatenate([jnp.arange(*o["G1"]), jnp.arange(*o["G2"])])
+
+
+def build_K_train(theta, R_G, N_G):
+    """Raissi eq.(12):
+        K = [ K_bb + sigma_n^2 I      K_b,n-1                    ]
+            [                         K_n-1,n-1 + Sigma_{n-1}    ]
+    b   = time-n constraints (wall, periodicity, continuity): sigma_n = 0.
+    n-1 = artificial data (G1, G2): per-point variance of u^{n-1}.
+    eps^2 I is added only if --eps-jitter > 0."""
+    K = build_K(theta, R_G)
+    if EPS_JITTER > 0:
+        K = K + (EPS_JITTER**2) * jnp.eye(n_train(R_G))
+    ig = g_index(R_G)
+    return K.at[jnp.ix_(ig, ig)].add(N_G)
+
+
+def neg_log_posterior(theta, y, R_G, N_G):
+    ntrain = y.shape[0]
+    Lc = jnp.linalg.cholesky(build_K_train(theta, R_G, N_G))
     v  = solve_triangular(Lc, y, lower=True)
-    jeffreys_nlp = jnp.sum(theta[_ACTIVE_IDX])
-    return (0.5*jnp.dot(v, v) + jnp.sum(jnp.log(jnp.diag(Lc)))
-            + 0.5*ntrain*jnp.log(2.0*jnp.pi)
-            + jeffreys_nlp) # Jeffreys prior    
+    jeffreys_nlp = jnp.sum(theta[ACTIVE_IDX])         
+    val = (0.5*jnp.dot(v, v) + jnp.sum(jnp.log(jnp.diag(Lc)))
+           + 0.5*ntrain*jnp.log(2.0*jnp.pi) + jeffreys_nlp)
+    return jnp.where(jnp.isfinite(val), val, jnp.inf)    
+
 
 @jax.jit
-def factorize(theta, R_G):
-    """One Cholesky. Reusable across steps only if R_G is held fixed."""
-    n = n_train(R_G)
-    K = build_K(theta, R_G) + (EPS_JITTER**2) * jnp.eye(n)
-    return jnp.linalg.cholesky(K)
+def nlp_active(theta_active, y, R_G, N_G):
+    """Objective over the ACTIVE hyperparameters only."""
+    return neg_log_posterior(expand_theta(theta_active), y, R_G, N_G)
 
-fun = neg_log_posterior
 
-def run_nelder_mead(init_params, fun, maxiter=500, tol=1e-1):
-    iter_count = [0]
-    
-    def callback(xk):
-        iter_count[0] += 1
-        val = fun(xk)
-        print(f"Nelder-Mead Iteration {iter_count[0]:<4} | Value: {val:.4e}")
+@jax.jit
+def factorize(theta, R_G, N_G):
+    return jnp.linalg.cholesky(build_K_train(theta, R_G, N_G))
 
-    solver = jaxopt.ScipyMinimize(
-        fun=fun,
-        method="Nelder-Mead",
-        tol=tol,
-        maxiter=maxiter,
-        callback=callback, # Triggers on each iteration
-        options={"disp": True, "adaptive": True},
-    )
-    
-    res = solver.run(init_params)
-    return res.params, res.state
+def artificial_noise(Sigma_prev):
+    """sigma_{n-1}^2 of eq.(12), per artificial point = diag(Sigma^{n-1,n-1}).
+    G = u^{n-1} + dt*F with F deterministic, so Var(G) = Var(u^{n-1}).
+    Clipped at 0 (round-off)."""
+    return jnp.diag(jnp.clip(jnp.diag(Sigma_prev), 0.0))
+
+PROPAGATE = (args.propagate == "on")
+
+
+def _nlp_value_zero_grad(theta_active, y, R_G, N_G):
+    """jaxopt.ScipyMinimize always requests (value, grad) with jac=True.
+    Nelder-Mead never uses the gradient, so return zeros instead of paying
+    for a backward pass through the Cholesky at every evaluation."""
+    return nlp_active(theta_active, y, R_G, N_G), jnp.zeros_like(theta_active)
+
+
+_NM_STATE = {"it": 0, "data": None}
+
+def _nm_callback(xk):
+    _NM_STATE["it"] += 1
+    if _NM_STATE["it"] % 25 == 0:                        # 1 extra eval per 25 iters
+        print(f"Nelder-Mead Iteration {_NM_STATE['it']:<4} | Value: "
+              f"{float(nlp_active(xk, *_NM_STATE['data'])):.6e}", flush=True)
+
+
+# Built ONCE. y, R_G, N_G are passed to run() as arguments (not closed over),
+# so jaxopt's jit compiles the objective once for the whole march.
+NM_SOLVER = jaxopt.ScipyMinimize(
+    fun=_nlp_value_zero_grad, value_and_grad=True,
+    method="Nelder-Mead", tol=args.tol, maxiter=args.nm_iter,
+    callback=_nm_callback, options={"disp": True, "adaptive": True})
+
+
+def run_nelder_mead(x0, y, R_G, N_G):
+    _NM_STATE["it"], _NM_STATE["data"] = 0, (y, R_G, N_G)
+    res = NM_SOLVER.run(x0, y, R_G, N_G)
+    return res.params, int(res.state.iter_num)
 
 def find_steady_state(history, rel_tol=1e-2, n_consecutive=3,
                       plateau_window=6, plateau_ratio=1.4):
@@ -605,7 +660,7 @@ def first_sustained(hist, key, tol, dt, window_t):
         if not below[i]:
             continue
         t_end = t[i] + window_t
-        if t[-1] < t_end - eps:          # run ended before window closed
+        if t[-1] < t_end - eps:         
             return None
         in_win = (t >= t[i]) & (t <= t_end + eps)
         if below[in_win].all():
@@ -641,10 +696,11 @@ def config_fingerprint(R_G0):
         "nm_iter": int(args.nm_iter), "tol": float(args.tol),
         "theta_init": [float(v) for v in theta_init],
         "points_hash": _arr_hash(R_u_train, R_dSu1, R_dSu2, R_sp, R_G0, R_s),
-        "n_artificial": int(args.n_artificial),
         "n_candidate": int(args.n_candidate),
         "zero_u-p": bool(args.zero_up),
-        "uncertainty_propagation": True,   # [PATCH] fingerprint bump: Sigma^{t-1,t-1} now marginalized
+        "noise_G": "diag(Sigma_prev)",
+        "propagate": bool(PROPAGATE),
+        "active_idx": [int(i) for i in ACTIVE_IDX],
     }
     h = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:16]
     return h, cfg
@@ -681,6 +737,7 @@ def report_theta(theta):
         note = ""
         if min(lx, ly) < 0.125:  note = "  <- below f-grid spacing"
         if max(lx, ly) > 1.0:    note = "  <- exceeds channel height"
+        if i in DEAD_BLOCKS:     note = "  (unused: --zero-up)"
         print(f"  {name:<6}{g:>9.3f}{lx:>9.3f}{ly:>9.3f}{note}")
 
 # ---- test points: a grid inside the channel -------------------------------
@@ -711,29 +768,12 @@ SREF = sfp.get_steady_reference(
     R_wall=R_u_train, R_dSu1=R_dSu1, R_dSu2=R_dSu2, R_sp=R_sp,
     R_f=R_f1, R_s=R_s, body_force=FBODY,
     eta=float(η), L=float(L), a=float(a), avg_width=float(avg_width),
-    theta_init=theta_init, eps_jitter=EPS_JITTER, zero_up=args.zero_up,
+    theta_init=theta_init, eps_jitter=1e-3, zero_up=args.zero_up,
     nm_iter=args.sref_nm_iter, nm_tol=args.sref_nm_tol,
     cache_dir=Path(__file__).resolve().parent / "cache_outputs" / "steady_pigp",
     refit=args.sref_refit)
 U1_SREF = SREF["u1"].reshape(NX, NY)
 U2_SREF = SREF["u2"].reshape(NX, NY)
-
-key = jrd.PRNGKey(args.artificial_seed)
-key, k0 = jrd.split(key)
-R_G = sample_artificial(args.n_artificial, k0, fresh=args.fresh_points)
- 
-fp, cfg = config_fingerprint(R_G)
-print(f"[config] fingerprint {fp}")
-print(f"[config] dt={Δt}  n_loop={args.n_loop}  n_artificial={args.n_artificial}"
-      f"  ntrain={n_train(R_G)}  dt*F_x={float(Δt/ρ*FBODY[0]):.4f}"
-      f"  sqrt(eta*dt/rho)={onp.sqrt(η*Δt/ρ):.3f}")
-if args.fixed_points:
-    print("[config] fixed artificial-data locations -> K factorized once")
-elif args.fresh_points:
-    print("[config] fresh uniform artificial-data locations each step")
-else:
-    print("[config] artificial data resampled from the collocation grid each step")
-
 
 row_u1 = [k_uu[0][0], k_uu[0][1], Sp(k_uu[0][0]), Sp(k_uu[0][1]),
           Sp(k_up[0]),  k_uG(0, 0), k_uG(0, 1), k_us(0)]
@@ -839,16 +879,21 @@ else:
 u1_prev = jnp.zeros(R_G.shape[0])
 u2_prev = jnp.zeros(R_G.shape[0])
 
-# --- [PATCH 4] Sigma^{0,0} = 0 (rest state is exactly known) ---------------
-_offs = block_slices(R_G)
-idx_G = jnp.concatenate([jnp.arange(*_offs["G1"]), jnp.arange(*_offs["G2"])])
-Sigma_prev = jnp.zeros((idx_G.shape[0], idx_G.shape[0]))
-# --- [END PATCH 4] -----------------------------------------------------------
- 
+idx_G = g_index(R_G)
+Sigma_prev = jnp.zeros((idx_G.shape[0], idx_G.shape[0]))   # Sigma^{0,0} = 0 (exact rest)
+
+print(f"[config] zero_up={args.zero_up}: Nelder-Mead over "
+      f"{ACTIVE_IDX.size}/{theta_init.shape[0]} hyperparameters")
+print(f"[config] K = Raissi eq.(12): boundary noise 0, G noise = diag(Sigma^(n-1)), "
+      f"eps_jitter = {EPS_JITTER:g}   propagation term (eq.13) = {PROPAGATE}")
+if PROPAGATE:
+    print("[warn] Sigma^{n-1} is in K AND in the propagation term -> counted twice")
+
+
 # ---- fit theta once against the first step --------------------------------
 y = make_y(u1_prev, u2_prev)
-obj = jax.jit(partial(neg_log_posterior, y=y, R_G=R_G))
- 
+N_G = artificial_noise(Sigma_prev)
+obj = lambda ta, y=y, R_G=R_G, N_G=N_G: nlp_active(ta, y, R_G, N_G) 
 final_params = None
 if not args.fit and not args.no_cache:
     final_params = load_cache(fp)
@@ -856,19 +901,19 @@ if not args.fit and not args.no_cache:
         print(f"[cache] loaded theta (skipping optimization)")
  
 if final_params is None:
-    print(f"Initial value: {float(obj(theta_init)):.6e}", flush=True)
+    ta0 = theta_init[ACTIVE_IDX]
+   print(f"Initial value: {float(obj(ta0)):.6e}", flush=True)
     t0 = time.time()
-    final_params, nit = run_nelder_mead(theta_init, obj,
-                                        maxiter=args.nm_iter,  
-                                        tol = args.tol,
-                                        )
-    print(f"Final value:   {float(obj(final_params)):.6e}  "
+    ta, nit = run_nelder_mead(ta0, y, R_G, N_G)
+    final_params = expand_theta(ta)
+    print(f"Final value:   {float(obj(ta)):.6e}  "
           f"[{time.time()-t0:.0f}s, {nit} iters]")
     if not args.no_cache:
-        save_cache(fp, final_params, obj(final_params))
+        save_cache(fp, final_params, obj(ta))
+
  
 print("\n[theta] FROZEN for the whole march" if not args.refit_every_step
-      else "\n[theta] refit at every step")
+      else "\n[theta] refit at every step (warm start from the previous step)")
 report_theta(final_params)
  
 # ---- march ----------------------------------------------------------------
@@ -935,30 +980,28 @@ if args.fem:
 for n in range(1, args.n_loop + 1):
     t_wall = time.time()
 
-    # 1) observation vector for this step
-    y = make_y(u1_prev, u2_prev)
+    # 1) observations + eq.(12) noise for this step
+    y      = make_y(u1_prev, u2_prev)
+    N_G    = artificial_noise(Sigma_prev)
+    M_prop = Sigma_prev if PROPAGATE else jnp.zeros_like(Sigma_prev)
 
-    # 2) optionally refit theta (paper warm-starts from the previous optimum)
+    # 2) refit theta, warm-started from the previous step's optimum
     if args.refit_every_step and n > 1:
-        obj_n = jax.jit(partial(neg_log_posterior, y=y, R_G=R_G))
-        final_params, _ = run_nelder_mead(final_params, obj_n,
-                                          maxiter=args.nm_iter,  
-                                          tol = args.tol,
-                                          )
+        
+        ta, _ = run_nelder_mead(final_params[ACTIVE_IDX], y, R_G, N_G)
+       final_params = expand_theta(ta, final_params)
         print(onp.asarray(final_params))
-    # 3) factorize. Reused only when the artificial-data locations are frozen.
-    if args.fixed_points and Lc_cached is not None:
-        Lc = Lc_cached
-    else:
-        Lc = factorize(final_params, R_G)
-        if args.fixed_points:
-            Lc_cached = Lc
+    # 3) factorize. K changes every step (N_G = diag(Sigma_prev)), so no caching.
+    Lc = factorize(final_params, R_G, N_G)
+    if not bool(jnp.all(jnp.isfinite(Lc))):
+        raise FloatingPointError(f"Cholesky failed at step {n}; "
+                                 f"theta = {onp.asarray(final_params)}")
 
     # 4) posterior on the test grid (for plots / diagnostics), including
     #    the propagated-uncertainty correction from Sigma_prev / M
-    u1_mean, u1_std = predict_diag(Lc, final_params, y, R_test, R_G, "u1", Sigma_prev, idx_G)
-    u2_mean, u2_std = predict_diag(Lc, final_params, y, R_test, R_G, "u2", Sigma_prev, idx_G)
-    p_mean,  p_std  = predict_diag(Lc, final_params, y, R_test, R_G, "p",  Sigma_prev, idx_G)
+    u1_mean, u1_std = predict_diag(Lc, final_params, y, R_test, R_G, "u1", M_prop, idx_G)
+    u2_mean, u2_std = predict_diag(Lc, final_params, y, R_test, R_G, "u2", M_prop, idx_G)
+    p_mean,  p_std  = predict_diag(Lc, final_params, y, R_test, R_G, "p",  M_prop, idx_G)
 
     # 5) draw the NEXT artificial-data locations, then evaluate the JOINT
     #    posterior there (mean + full covariance) -> becomes next Sigma_prev
@@ -967,7 +1010,7 @@ for n in range(1, args.n_loop + 1):
                 else sample_artificial(args.n_artificial, kn, fresh=args.fresh_points))
 
     u1_next, u2_next, Sigma_next = predict_joint(
-        Lc, final_params, y, R_G_next, R_G, Sigma_prev, idx_G)
+        Lc, final_params, y, R_G_next, R_G, M_prop, idx_G)
 
     # ---- diagnostics
     U1 = onp.asarray(u1_mean).reshape(NX, NY)
@@ -1061,7 +1104,8 @@ for n in range(1, args.n_loop + 1):
               R_G=onp.asarray(R_G),
               u1_artificial=onp.asarray(u1_next),
               u2_artificial=onp.asarray(u2_next),
-              Sigma_diag_artificial=onp.asarray(jnp.diag(Sigma_next)))
+              Sigma_diag_artificial=onp.asarray(jnp.diag(Sigma_next)),
+              noise_G_diag=onp.asarray(jnp.diag(N_G)))
 
     # 6) hand off to the next step (Sigma_next carries the propagated
     #    uncertainty forward, replacing the old "exact-value" assumption)
@@ -1235,6 +1279,9 @@ def write_report(history, fp, args, t_steady, n_steady, reason, outdir,
     lines.append(f"n_artificial      : {args.n_artificial}  fresh_points={args.fresh_points}  fixed_points={args.fixed_points}")
     lines.append(f"nm_iter / tol     : {args.nm_iter} / {args.tol}")
     lines.append(f"refit_every_step  : {args.refit_every_step}")
+    lines.append(f"zero_up / active   : {args.zero_up} / {ACTIVE_IDX.size} of {theta_init.shape[0]}")
+    lines.append(f"K (eq.12)          : G noise = diag(Sigma_prev), boundary noise 0, "
+                 f"eps_jitter = {EPS_JITTER:g}, propagation term = {PROPAGATE}")
     lines.append(f"fem comparison    : {args.fem}")
     lines.append("")
 

@@ -65,6 +65,10 @@ pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=200,NSNAP=5,TOL=0.01 run.sh
 pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=500,NSNAP=5,TOL=0.01 run.sh
 ```
 
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=300,NSNAP=5,TOL=0.01 run.sh
+```
+
 ## 3) Artificial points changes
 
 ```
@@ -83,4 +87,15 @@ pjsub -x REFIT=1,DT=0.05,NLOOP=20,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run
 
 ```
 pjsub -x REFIT=1,DT=0.005,NLOOP=200,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+
+## Plates
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=100,NSNAP=5,TOL=0.01,GEOMETRY=plates run.sh
+
+
+# 3036/09/26
+
+- Fixing the jitter so that it is the same as Raissia. Currently, the jitter is constant and applied diagonally to every K. It will now add at the correct postion.
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
 ```
