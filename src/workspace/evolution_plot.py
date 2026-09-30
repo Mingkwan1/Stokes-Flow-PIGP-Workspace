@@ -96,14 +96,14 @@ def _one_field(times, U_list, fem_list, fname, *, XX, YY, L, a, avg_width,
     x_span = float(L)
     y_span = float(avg_width) + 2.0*abs(float(a))
     panel_w = 3.6
-    L_M, R_M, T_M, B_M = 0.075, 0.865, 0.955, 0.075
+    L_M, R_M, T_M, B_M = 0.10, 0.865, 0.915, 0.075
     fig_w = panel_w*ns / (R_M - L_M)
     fig_h = (panel_w*(y_span/x_span)*nrows) / (T_M - B_M) + 1.1
 
     fig, axes = plt.subplots(nrows, ns, figsize=(fig_w, fig_h),
                              squeeze=False, sharex=True, sharey=True)
     fig.subplots_adjust(left=L_M, right=R_M, top=T_M, bottom=B_M,
-                        hspace=0.10, wspace=0.05)   # was 0.32 / 0.10
+                        hspace=0.10, wspace=0.12)   # was 0.32 / 0.10
     
     def _draw(ax, A):
         pc = ax.pcolormesh(XX, YY, np.asarray(A), cmap=cmap, shading="gouraud",
@@ -112,6 +112,7 @@ def _one_field(times, U_list, fem_list, fname, *, XX, YY, L, a, avg_width,
         ax.plot(xw, -wall/2, "k", lw=1.0)
         ax.set_aspect("equal", adjustable="box")
         ax.set_xticks([0, float(L)/2, float(L)])
+        ax.set_xticklabels(["0", f"{L/2:g}", f"{L:g}"])
         ax.tick_params(labelsize=FS_TICK)
         return pc
  
@@ -125,9 +126,9 @@ def _one_field(times, U_list, fem_list, fname, *, XX, YY, L, a, avg_width,
             rel = (np.linalg.norm(np.asarray(U)[good] - F[good])
                   / np.linalg.norm(F[good]))
             cap += f"\nrel $L_2$={rel:.1%}"
-        ax.set_title(cap, fontsize=FS_PANEL)                 
+        ax.set_title(cap, fontsize=FS_PANEL, pad=8)                 
         if c == 0:
-            ax.set_ylabel("PIGP\n$y$", fontsize=FS_ROWLAB)
+            ax.set_ylabel("PIGP\n$y$", fontsize=FS_ROWLAB, labelpad=12)
         if not has_fem:
             ax.set_xlabel("$x$")
  
@@ -145,7 +146,7 @@ def _one_field(times, U_list, fem_list, fname, *, XX, YY, L, a, avg_width,
                 spine.set_linestyle((0, (4, 2)))
                 spine.set_edgecolor("0.3")
             if c == 0:
-                ax.set_ylabel("FEM\n$y$", fontsize=FS_ROWLAB)
+                ax.set_ylabel("FEM\n$y$", fontsize=FS_ROWLAB, labelpad=12)
  
     if has_fem:
         from matplotlib.colors import LogNorm
@@ -203,11 +204,11 @@ def _one_field(times, U_list, fem_list, fname, *, XX, YY, L, a, avg_width,
         for c in range(ns):
             pc_abs = _draw_err(axes[2][c], abs_err_list[c], abs_lo, abs_hi)
             if c == 0:
-                axes[2][c].set_ylabel(f"$|\\Delta|$\n$y$", fontsize=FS_ROWLAB)
+                axes[2][c].set_ylabel(f"$|\\Delta|$\n$y$", fontsize=FS_ROWLAB, labelpad=12)
  
             pc_rel = _draw_err(axes[3][c], rel_err_list[c], rel_lo, rel_hi)
             if c == 0:
-                axes[3][c].set_ylabel("rel. err.\n$y$", fontsize=FS_ROWLAB)
+                axes[3][c].set_ylabel("rel. err.\n$y$", fontsize=FS_ROWLAB, labelpad=12)
  
     for c in range(ns):
         axes[-1][c].set_xlabel("$x$", fontsize=FS_AXLAB)
@@ -323,7 +324,8 @@ def plot_uncertainty_evolution(snaps, outdir, *, XX, YY, L, a, avg_width,
     pc = None
     for c, s in enumerate(snaps):
         pc = _draw(axes[0][c], two_sig[c])
-        axes[0][c].set_title(rf"$t={s[1]:.3f}$", fontsize=11)
+        axes[0][c].set_title(rf"$t={s[1]:.3f}$", fontsize=11, pad=8)
+        fig.subplots_adjust(top=0.90)  
         if c == 0:
             axes[0][c].set_ylabel(r"$2\sigma$" + "\n$y$")
         if has_fem:
@@ -485,7 +487,7 @@ def plot_profiles(snaps, outdir, *, XX, YY, L, a, avg_width,
         if r == 1:
             ax.set_xlabel(sym, fontsize=FS_AXLAB)
         if c == 0:
-            ax.set_ylabel("$y$", fontsize=FS_AXLAB)
+            ax.set_ylabel("$y$", fontsize=FS_AXLAB, labelpad=8)
         ax.tick_params(labelsize=FS_TICK)
         ax.grid(alpha=0.2)
 

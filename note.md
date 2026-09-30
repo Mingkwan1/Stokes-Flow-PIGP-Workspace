@@ -99,3 +99,69 @@ pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=100,NSNAP=5,TOL=0.01,GEOMETRY=plates ru
 ```
 pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
 ```
+```
+pjsub -x REFIT=0,DT=0.01,NLOOP=50,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=50,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+
+No fresh points works!
+
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+
+```
+pjsub -x REFIT=1,DT=0.05,NLOOP=100,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+
+```
+pjsub -x REFIT=1,DT=0.005,NLOOP=200,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+
+
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=50,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+
+
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=200,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+```
+
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=270 run.sh
+```
+
+```
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=410 run.sh
+```
+
+### No args
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+pjsub -x REFIT=1,DT=0.01,NLOOP=100,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+pjsub -x REFIT=1,DT=0.05,NLOOP=20,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+pjsub -x REFIT=1,DT=0.005,NLOOP=80,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+
+pjsub -x REFIT=1,DT=0.01,NLOOP=80,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=270 run.sh
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=410 run.sh
+
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=50,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=200,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+
+### freshpoints args
+
+pjsub -x REFIT=1,DT=0.01,NLOOP=40,NMITER=100,NSNAP=5,TOL=0.01,ARTIFICIAL=340 run.sh
+
+### Plates
+
+pjsub -x REFIT=1,DT=0.01,NLOOP=100,NMITER=100,NSNAP=3,TOL=0.01,ARTIFICIAL=340,SHAPE=plates run.sh
+
+
+uv run python ./src/workspace/replot_evolution.py 
+  --outdir ./src/workspace/outputs/concurrent_points_0927/20260927_usf_0.01_40_340artificial_sinusoidal_nm_100_tol_0.01_fresh_points_False_refit_everystep_True_eps_0.001_zeroup_True 
+  --dt 0.01 --n-loop 40 --n-snap 3 --n-artificial 340

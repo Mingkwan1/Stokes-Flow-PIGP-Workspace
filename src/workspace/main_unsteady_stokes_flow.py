@@ -77,6 +77,7 @@ parser.add_argument("--eps-jitter", type=float, default=0.0,
 parser.add_argument("--propagate", choices=["on", "off"], default="off",
                     help="Raissi eq.(13) term Q K^-1 M K^-1 Q^T. Off: Sigma^{n-1} "
                          "is already in K, so 'on' counts it twice")
+
 parser.add_argument("--fit", action="store_true", help="force re-optimization")
 parser.add_argument("--no-cache", action="store_true", help="do not read or write cache")
 parser.add_argument("--nm-iter", type=int, default=500)
@@ -121,7 +122,7 @@ parser.add_argument("--test-margin", type=float, default=0.999,
                          "half-width. --fem caps it at 0.98: the FEM mesh "
                          "stops at the wall and the interpolator returns NaN "
                          "outside it, which poisons the L2 error metric.")
-
+# Evoluation plots
 parser.add_argument("--evolution", action="store_true",
                         help="write the u_x/u_y evolution figure at the end "
                              "of the march")
@@ -141,13 +142,13 @@ parser.add_argument("--sref-refit", action="store_true",
 args = parser.parse_args()
 
 SPECIMEN = (
-    f"20260925_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
+    f"20260927_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
     f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
     f"fresh_points_{args.fresh_points}_"
     f"refit_everystep_{args.refit_every_step}"
     f"_eps_{args.eps_jitter}_zeroup_{args.zero_up}"
 )
-OUTDIR = Path(__file__).resolve().parent / "outputs"/ SPECIMEN
+OUTDIR = Path(__file__).resolve().parent / "outputs"/ "concurrent_points_0927" / SPECIMEN
 (OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
 PLOT_PATH = CACHE_PATH = OUTDIR / "plots" 
 
@@ -902,7 +903,7 @@ if not args.fit and not args.no_cache:
  
 if final_params is None:
     ta0 = theta_init[ACTIVE_IDX]
-   print(f"Initial value: {float(obj(ta0)):.6e}", flush=True)
+    print(f"Initial value: {float(obj(ta0)):.6e}", flush=True)
     t0 = time.time()
     ta, nit = run_nelder_mead(ta0, y, R_G, N_G)
     final_params = expand_theta(ta)
@@ -964,7 +965,9 @@ if args.fem:
         Fn1 = onp.asarray(fem_march[s][0]).reshape(NX, NY)
         Fn2 = onp.asarray(fem_march[s][1]).reshape(NX, NY)
         fem_hist.append({"t": s * Δt,
-                         "rel": sfp.rel_l2_velocity(Fn1, Fn2, F1_test, F2_test)})
+                         "rel": sfp.rel_l2_velocity(Fn1, Fn2, F1_test, F2_test),
+                         "rel_uxmax": abs(float(onp.nanmax(Fn1)) - float(onp.nanmax(F1_test)))
+                                      / float(onp.nanmax(F1_test))})
     fem_t_steady = first_sustained(fem_hist, "rel", args.steady_ref_tol,
                                    Δt, args.steady_window_t)
     print("\n" + "=" * 66)
@@ -978,6 +981,7 @@ if args.fem:
     print("=" * 66)
     
 for n in range(1, args.n_loop + 1):
+    
     t_wall = time.time()
 
     # 1) observations + eq.(12) noise for this step
@@ -989,7 +993,7 @@ for n in range(1, args.n_loop + 1):
     if args.refit_every_step and n > 1:
         
         ta, _ = run_nelder_mead(final_params[ACTIVE_IDX], y, R_G, N_G)
-       final_params = expand_theta(ta, final_params)
+        final_params = expand_theta(ta, final_params)
         print(onp.asarray(final_params))
     # 3) factorize. K changes every step (N_G = diag(Sigma_prev)), so no caching.
     Lc = factorize(final_params, R_G, N_G)
@@ -1039,7 +1043,6 @@ for n in range(1, args.n_loop + 1):
     diag.update(_uncertainty_stats(S1, "ux"))
     diag.update(_uncertainty_stats(S2, "uy"))
     diag["rel_sref"]    = sfp.rel_l2_velocity(U1, U2, U1_SREF, U2_SREF)
-    diag["rel_ux_sref"] = sfp.rel_l2_velocity(U1, None, U1_SREF, None)
     # ---- coverage: fraction of points where the TRUE (FEM) error at this
     # same step falls within the model's own 95% band -- separately for
     # u_x and u_y, since they can be calibrated very differently (u_y is
@@ -1066,7 +1069,6 @@ for n in range(1, args.n_loop + 1):
         cov_uy_str = f"{100*cov_y:7.1f}%"
 
     print(f"{n:>5}{t_now:>8.3f}{U1.max():>11.5f}{U1[:, NY//2].mean():>11.5f}"
-          f"{U1[:, 0].mean():>11.2e}{onp.abs(U2).max():>11.5f}{du:>11.2e}"
           f"{diag['twosig_max_ux']:>10.2e}{cov_ux_str:>9}"
           f"{diag['twosig_max_uy']:>10.2e}{cov_uy_str:>9}"
           f"{time.time()-t_wall:>7.1f}", flush=True)
@@ -1367,6 +1369,26 @@ def write_report(history, fp, args, t_steady, n_steady, reason, outdir,
                          f"({100*err/steady_ref['fem']:+.1f}% of FEM, resolution ±{Δt:g})")
         if steady_ref["ref_gap"] is not None:
             lines.append(f"  steady PIGP vs steady FEM: rel L2 = {steady_ref['ref_gap']:.4e}")
+        if "pigp_ux" in steady_ref:
+            lines.append("")
+            lines.append("-" * 78)
+            lines.append(f"STEADY TIME t*  (u_x max within {100*args.steady_ref_tol:g}% of its "
+                         f"OWN final level, held {args.steady_window_t:g})")
+            lines.append("-" * 78)
+            lines.append(f"  PIGP final : u_x max -> {steady_ref['ux_inf_pigp']:.5f}  "
+                         f"(extrapolated, q={steady_ref['q']:.3f}, "
+                         f"ratio spread={steady_ref['q_spread']:.3f})")
+            lines.append(f"  PIGP t*    : {fmt(steady_ref['pigp_ux'])}")
+            if steady_ref["ux_inf_fem"] is not None:
+                lines.append(f"  FEM final  : u_x max  = {steady_ref['ux_inf_fem']:.5f}  (steady FEM)")
+            lines.append(f"  FEM t*     : {fmt(steady_ref['fem_ux'])}")
+            if steady_ref["pigp_ux"] is not None and steady_ref["fem_ux"] is not None:
+                d = steady_ref["pigp_ux"] - steady_ref["fem_ux"]
+                lines.append(f"  difference : {d:+.4f}  ({100*d/steady_ref['fem_ux']:+.1f}% "
+                             f"of FEM t*, resolution ±{Δt:g})")
+            if steady_ref["offset"] is not None:
+                lines.append(f"  accuracy   : PIGP final level vs steady FEM = "
+                             f"{100*steady_ref['offset']:+.2f}%")
     lines.append("=" * 78)
 
     with open(txt_path, "w") as f:
@@ -1378,6 +1400,37 @@ steady_ref = None
 t_pigp = first_sustained(history, "rel_sref", args.steady_ref_tol,
                          Δt, args.steady_window_t)
 steady_ref = {"pigp": t_pigp, "fem": fem_t_steady, "ref_gap": None}
+
+def extrapolate_final(v, m=8):
+    """Limit of a geometrically decaying sequence:
+    v_inf = v[-1] + d[-1]*q/(1-q), q = median ratio of the last m increments.
+    Returns (v_inf, q, spread of the ratios). Needs clean decay (--fixed-points)."""
+    v = onp.asarray(v, float)
+    d = onp.diff(v)
+    r = d[-m:] / d[-m-1:-1]
+    q = float(onp.median(r))
+    spread = float(onp.ptp(r))
+    if not (0.0 < q < 1.0):
+        return float(v[-1]), q, spread
+    return float(v[-1] + d[-1]*q/(1.0 - q)), q, spread
+
+# ---- t* : each method vs its OWN final level (u_x max) -----------------------
+UX_INF_PIGP, q_pigp, q_spread = extrapolate_final([h["ux_max"] for h in history])
+for h in history:
+    h["uxmax_rel_own"] = abs(h["ux_max"] - UX_INF_PIGP) / UX_INF_PIGP
+t_pigp_ux = first_sustained(history, "uxmax_rel_own", args.steady_ref_tol,
+                            Δt, args.steady_window_t)
+UX_INF_FEM = float(onp.nanmax(F1_test)) if args.fem else None   # FEM march -> steady FEM
+t_fem_ux  = (first_sustained(fem_hist, "rel_uxmax", args.steady_ref_tol,
+                             Δt, args.steady_window_t) if args.fem else None)
+offset = ((UX_INF_PIGP - UX_INF_FEM) / UX_INF_FEM) if args.fem else None
+steady_ref.update({"pigp_ux": t_pigp_ux, "fem_ux": t_fem_ux,
+                   "ux_inf_pigp": UX_INF_PIGP, "ux_inf_fem": UX_INF_FEM,
+                   "q": q_pigp, "q_spread": q_spread, "offset": offset})
+if not (0.0 < q_pigp < 1.0) or q_spread > 0.2 or not args.fixed_points:
+    print(f"[warn] final-level extrapolation may be unreliable "
+          f"(q={q_pigp:.3f}, ratio spread={q_spread:.3f}, "
+          f"fixed_points={args.fixed_points})")
 if F1_test is not None:
     steady_ref["ref_gap"] = sfp.rel_l2_velocity(U1_SREF, U2_SREF, F1_test, F2_test)
 
@@ -1393,6 +1446,20 @@ if args.fem:
         err = t_pigp - fem_t_steady
         print(f"  error t*        : {err:+.4f}  ({100*err/fem_t_steady:+.1f}% of FEM)")
     print(f"  steady PIGP vs steady FEM (rel L2): {steady_ref['ref_gap']:.4e}")
+print("=" * 66)
+print("\n" + "=" * 66)
+print(f"STEADY TIME t*  (u_x max within {100*args.steady_ref_tol:g}% of its OWN final level)")
+print("=" * 66)
+print(f"  PIGP final : u_x max -> {UX_INF_PIGP:.5f}  (extrapolated, q={q_pigp:.3f})")
+print(f"  PIGP t*    : {fmt(t_pigp_ux)}")
+if args.fem:
+    print(f"  FEM final  : u_x max  = {UX_INF_FEM:.5f}  (steady FEM)")
+    print(f"  FEM t*     : {fmt(t_fem_ux)}")
+    if t_pigp_ux is not None and t_fem_ux is not None:
+        d = t_pigp_ux - t_fem_ux
+        print(f"  difference : {d:+.4f}  ({100*d/t_fem_ux:+.1f}% of FEM t*, "
+              f"resolution ±{Δt:g})")
+    print(f"  accuracy   : PIGP final level vs steady FEM = {100*offset:+.2f}%")
 print("=" * 66)
 
 write_report(history, fp, args, t_steady, n_steady, reason, OUTDIR,

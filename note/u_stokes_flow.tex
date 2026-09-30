@@ -4,8 +4,13 @@
 \usepackage{amsmath}
 \usepackage{tikz}
 \usepackage{float}
+\usepackage{xcolor}
 \usepackage[style=apa]{biblatex}
 \usepackage[margin=2.5cm]{geometry} 
+
+\newcommand{\revnote}[1]{{\color{red}\textbf{[Revision note:]} #1}}
+\newcommand{\tbd}[1]{{\color{blue}\textbf{[#1]}}}
+\newcommand{\figplaceholder}[1]{...}   % blue "Figure pending" box
 
 \addbibresource{references.bib}
 \usetikzlibrary{shapes.geometric, arrows.meta, positioning}
@@ -128,7 +133,7 @@ A GP for function \(f(x)\), with the input locations at \(\boldsymbol{X} =[\bold
 
 \vspace{0.5cm}
 
-\noindent \(\mu\) and \(k\) represent the average function and kernel function respectively
+\noindent \(\mu\) and \(k\) represent the mean function and kernel function respectively
 
 \vspace{0.5cm}
 
@@ -162,12 +167,13 @@ the product kernel, to calculate the kernel function.
 \vspace{0.5cm}
 
 \begin{equation}
-    k^{\times}(\boldsymbol{x},\boldsymbol{x^{'}})=k(x,x^{'}) \times k(y,y^{'})
+    k^{\times}(\boldsymbol{x},\boldsymbol{x^{'}})
+        = \exp\left(\gamma - \frac{(x-x^{'})^2}{2l_x^2} - \frac{(y-y^{'})^2}{2l_y^2}\right)
 \end{equation}
 
 \vspace{0.5cm}
 
-We can learn the function by inferring the value at each test positions \(X_{\star}\). For a function \(f\),
+\noindent so that each base kernel carries three hyperparameters, (γ, l_x, l_y).We can learn the function by inferring the value at each test positions \(X_{\star}\). For a function \(f\),
 
 \vspace{0.5cm}
 
@@ -287,7 +293,7 @@ method was used, in reference to \textcite{Raissi2018}. Doing so, \(u^t\) can be
 \(\mathcal{G}\) can be evaluated from data at time \(t-1\) (the external force and the previous velocity),
 while it also appears, through \(f\), as a linear combination of the unknown \(u^t\) and \(p^t\). 
 This dual role is what allows \(\mathcal{G}\) to impose the physical constraint linking \(u^t\) to \(u^{t-1}\) within
-the Gaussian process framework developed next.
+the Gaussian process framework developed next. Throughout this work \rho = \eta = 1.
 
 \section{Physics-Informed Kernel Construction}
 \label{sec:kernel-construction}
@@ -306,7 +312,7 @@ pressure gradient, the velocity at the walls and the pressure at the inlet and o
 Given training data and unknown test locations
 \(\boldsymbol{X_\star} = [\boldsymbol{x_{1,\star}},\boldsymbol{x_{2,\star}},...,\boldsymbol{x_{N,\star}}]\),
 with unknown velocity and pressure denoted \(\boldsymbol{u^\star}\) and
-\(\boldsymbol{p^\star}\), the joint Gaussian process over \(s\) and \(\mathcal{G}\) is
+\(\boldsymbol{p^\star}\), the joint Gaussian process over the unknowns and the training quantities is
 
 \begin{equation}
     \begin{bmatrix}
@@ -335,7 +341,7 @@ with unknown velocity and pressure denoted \(\boldsymbol{u^\star}\) and
     \end{bmatrix}
 \end{equation}
 
-In order to investigate infereInference Algorithnce of time propagation in velocity, we defined the test value to be value of the variable at time \(t\), and the training value to be of time \(t-1\). 
+To infer the time propagation of the velocity, the test values are defined as the variables at time \(t\), and the training values as those of time \(t-1\).
 The appropriate prior can be re-written as following.
 
 \begin{equation}
@@ -401,7 +407,8 @@ needed for the time-marching scheme of Section~\ref{sec:time-disc}; only the ass
 of a given set of values to the training or test role changes from one time step to the
 next. All remaining correlations, involving \(f^\alpha\), \(s\), and \(\mathcal{G}^\alpha\)
 , are derived from these six base kernels by applying the linear differential operators
-of the governing equations, as follows, for \(\rho=1\).
+of the governing equations, and with summation over the repeated index \(\beta\)
++in \(k_{u^\alpha s}\), \(k_{ps}\), \(k_{f^\alpha s}\) and \(k_{ss}\), as follows
 
 \begin{align}
 k_{u^\alpha f^\beta} &= \mathcal{D}'^\beta k_{u^\alpha p} - \eta \mathcal{L}' k_{u^\alpha u^\beta} \\
@@ -439,6 +446,61 @@ The general posterior is then
     \label{eq:posterior-generic}
 \end{equation}
 
+% ---------------------------------------------------------------------------
+\section{Uncorrelated Velocity and Pressure Priors}
+\label{sec:zero-up}
+ 
+The six base kernels above allow the prior to encode an \emph{a priori} correlation between
+the velocity and the pressure through \(k_{u^xp}\) and \(k_{u^yp}\). In this work these two
+cross-kernels are set to zero,
+ 
+\begin{equation}
+    k_{u^\alpha p}(\boldsymbol{x},\boldsymbol{x}') = k_{p u^\alpha}(\boldsymbol{x},\boldsymbol{x}') = 0,
+    \qquad \alpha \in \{x, y\},
+    \label{eq:zero-up}
+\end{equation}
+ 
+\noindent i.e.\ velocity and pressure are modelled as independent Gaussian processes \emph{before}
+any data are observed. This does not mean that velocity and pressure are physically unrelated --
+the pressure gradient drives the flow. The coupling between the two is instead supplied by the
+physics constraints: the momentum rows \(\mathcal{G}^\alpha\) contain both
+\(\mathcal{D}^\alpha p\) and \(\mathcal{L}u^\alpha\), and the continuity rows \(s\) constrain \(\boldsymbol{u}\).
+Once the GP is conditioned on these rows, the posterior velocity and pressure are correlated even
+though the prior treats them as independent. The assumption is therefore that the prior
+cross-correlation carries little information that is not already imposed by the governing equations.
+Independent priors for coupled fields are also the choice made by \textcite{Raissi2018} for
+systems of equations.
+ 
+With \eqref{eq:zero-up}, the derived kernels simplify to
+ 
+\begin{align}
+k_{u^\alpha f^\beta} &= - \eta \mathcal{L}' k_{u^\alpha u^\beta}, &
+k_{p f^\alpha} &= \mathcal{D}'^\alpha k_{pp}, &
+k_{ps} &= 0, \\
+k_{f^\alpha u^\beta} &= - \eta \mathcal{L} k_{u^\alpha u^\beta}, &
+k_{f^\alpha s} &= - \eta \mathcal{L} \mathcal{D}'^\beta k_{u^\alpha u^\beta}, &
+k_{p \mathcal{G}^{\beta}} &= \Delta t\, \mathcal{D}'^\beta k_{pp}, \\
+k_{f^\alpha f^\beta} &= \mathcal{D}^\alpha \mathcal{D}'^\beta k_{pp} + \eta^2 \mathcal{L} \mathcal{L}' k_{u^\alpha u^\beta}, & & & &
+\end{align}
+ 
+\noindent while \(k_{u^\alpha s}\) and \(k_{ss}\) are unchanged. Only four base kernels remain,
+\(k_{u^xu^x}\), \(k_{u^xu^y}\), \(k_{u^yu^y}\) and \(k_{pp}\), each with three hyperparameters
+\((\gamma, l_x, l_y)\), so the number of hyperparameters is reduced from 18 to 12.
+This has three practical consequences:
+\begin{enumerate}
+    \item the Nelder--Mead search runs in a 12-dimensional rather than an 18-dimensional space,
+          which matters because the number of iterations per step is limited;
+    \item roughly half of the derivative kernels that involve \(k_{u^\alpha p}\) no longer need to be
+          evaluated, which reduces the cost of building \(\boldsymbol{K}\);
+    \item with the velocity and pressure blocks independent, the prior over \((\boldsymbol{u}, p)\) is a
+          valid covariance whenever the velocity block and the pressure block are valid individually,
+          which removes one way in which the joint kernel can fail to be positive semi-definite.
+\end{enumerate}
+\revnote{Suggested addition for the results chapter: one run with the cross-kernels switched back on,
+to show quantitatively that this assumption does not degrade the accuracy.}
+ 
+% ---------------------------------------------------------------------------
+
 \section{Application to Periodic Channel Flow}
 \label{sec:periodic-channel}
 
@@ -475,13 +537,15 @@ becomes
     \end{bmatrix}
     \sim\mathcal{N}\left(0,
     \begin{bmatrix}
-        \boldsymbol{K^{t, t}} & \boldsymbol{Q}\\
-        \boldsymbol{Q^T} & \boldsymbol{K^{t-1, t-1}} \\
+        \boldsymbol{K^{t, t} + \sigma_{t,t}^2 I} & \boldsymbol{Q}\\
+        \boldsymbol{Q^T} & \boldsymbol{K^{t-1, t-1}+ \sigma_{t-1,t-1}^2 I} \\
     \end{bmatrix}
     \right)
 \end{equation}
 
-\noindent The posterior changes form to the following form.
+\noindent where \(\boldsymbol{\sigma_{t,t}^2 I}\) is the uncertainty of the value at time \(t\), and 
+\(\boldsymbol{\sigma_{t-1,t-1}^2 I}\) is of time \(t-1\) resepectively. Since, the value at time \(t\)
+here are noiseless boundary data, the uncertainty is zero.The posterior changes form to the following form.
 
 \begin{equation}
     \begin{matrix}
@@ -526,8 +590,8 @@ covariance. Doing so gives
 \end{equation}
 
 \begin{equation}
-    \boldsymbol{\Sigma^{t,t}} = \boldsymbol{K^{t,t}} - \boldsymbol{Q K^{-1} Q^T}
-    + \boldsymbol{Q K^{-1} M K^{-1} Q^T}
+    K = [[K_bb, K_bG], [K_Gb, K_GG + diag(Σ^{t-1,t-1})]] + ε² I
+    \Sigma^{t,t} = K^{t,t} - Q K^{-1} Q^T
 \end{equation}
 
 \noindent and \(\boldsymbol{M}\) is zero everywhere except in the block corresponding to
@@ -557,6 +621,8 @@ independent Jeffreys prior for each hyperparameter,
 \begin{equation}
     \log p(\boldsymbol{\theta}|I) = \sum_{i=1}^{N_\theta} \log p(\theta_i|I)
     = -\sum_{i=1}^{N_\theta} \log \theta_i.
+    -\log p(\boldsymbol{\theta}|I) = \sum_{k} \left( \gamma_k + \log l_{x,k} + \log l_{y,k} \right) + \text{const.},
+    \qquad k \in \{u^xu^x,\ u^xu^y,\ u^yu^y,\ pp\}.
 \end{equation}
 \vspace{0.3cm}
 
@@ -566,13 +632,11 @@ are taken from \textcite{Molina2023}, where \(\gamma_1\) is the initial variance
 for the \(u\)--\(u\) and \(p\)--\(p\) correlations, \(\gamma_2\) the initial variance
 scale for \(u\)--\(p\) correlations, and \(l\) the initial length scale, shared across
 all correlations at initialization. Unlike \textcite{Molina2023}, where \(\gamma_2=0\)
-is only the starting point of a full optimization run over all hyperparameters, here
-the \(u\)--\(p\) correlation kernel \(k_{u^\alpha p}\) is fixed at zero throughout
-optimization, i.e. \(u\) and \(p\) are modeled as uncorrelated fields.
+is only the starting point of a full optimization run over all hyperparameters,The velocity--pressure amplitude of 0 does not apply here, since those kernels are removed (§2.3)
 
-Hyperparameters are optimized using a Nelder--Mead downhill simplex method over 500
-iterations, matching \textcite{Molina2023}. Hyperparameters are re-fit from scratch at
-every time step, rather than warm-started from the previous step's optimum.
+The 12 hyperparameters are optimized with an adaptive Nelder--Mead downhill simplex method, limited to
+100 iterations with a tolerance of 10^{-2}. ... each fit is warm-started from the previous step's optimum,
+The velocity--pressure amplitude of 0 used by Molina does not apply here, since those kernels are removed (§2.3).as recommended by \textcite{Raissi2018}
 A jitter term is added to the training covariance diagonal for numerical stability, as
 in \textcite{Molina2023},
 
@@ -584,20 +648,32 @@ in \textcite{Molina2023},
 \label{sec:inference-algorithm}
 
 The full time-marching inference procedure is shown in Figure~\ref{fig:flowchart}.
-During the first run, at time \(t=0\), \(\boldsymbol{u}(t=0)\) and \(\boldsymbol{p}(t=0)\)
-are both zero. The training set consists of \(340\times2\) points for \(\mathcal{G}\),
-\(340\) points for \(s\), \(60\times2\) points for the no-slip wall velocity
-\(\boldsymbol{u_b}\), \(15\times2\) points for \(S^1_L\boldsymbol{u}\), and \(15\)
-points for \(S^1_L\boldsymbol{p}\), matching \textcite{Molina2023}. At each step, hyperparameters are optimized as
-described in Section~\ref{sec:optimization}. \(500\) test points are predicted, of
-which \(270\) points are randomly sampled from the predicted output to serve as the
-artificial \(\mathcal{G}\) training data for the next step.
-\vspace{0.3cm}
-In every subsequent loop, the number of training points remains the same as in the
-first round, but \(\boldsymbol{\mathcal{G}^t}\) is recomputed by substituting the
-posterior mean of \(u^{t-1}\) from the previous loop into
-Equation~\eqref{eq:G-rhs}, with its uncertainty propagated as described in
-Section~\ref{sec:uncertainty-propagation}.
+The fluid starts at rest, so \(\boldsymbol{u}(t=0) = \boldsymbol{0}\) and \(\boldsymbol{\Sigma}^{0,0} = \boldsymbol{0}\).
+The training set, identical in size at every step, consists of:
+\begin{itemize}
+    \item 62 no-slip points on each wall (124 in total), used for both \(u_b^x\) and \(u_b^y\) (248 rows);
+    \item 15 points on the inlet line \(x = 0\) for each of \(S^1_L u^x\), \(S^1_L u^y\) and \(S^1_L \tilde{p}\) (45 rows);
+    \item 340 artificial points, each used for \(\mathcal{G}^x\) and \(\mathcal{G}^y\) (680 rows);
+    \item 340 continuity points \(s\) on a fixed \(20 \times 17\) grid mapped onto the channel (340 rows);
+\end{itemize}
+\noindent giving \(N = 1313\) training rows.
+\revnote{Previously ``\(340\times2\) points for \(\mathcal{G}\), 60\(\times\)2 wall points, and 270 points randomly
+sampled from 500 predicted test points''. The code uses 62 points per wall, 340 artificial points, and the
+artificial locations are drawn directly in the channel, not sub-sampled from the test grid.}
+ 
+\noindent At each step \(t = 1, \dots, N_t\):
+\begin{enumerate}
+    \item build \(\boldsymbol{y}\) with \(\mathcal{G}^t = \boldsymbol{\mu}^{t-1} + \Delta t\,\boldsymbol{f}_{ext}\) at the current
+          artificial locations, and the noise block \(\operatorname{diag}(\boldsymbol{\Sigma}^{t-1,t-1})\);
+    \item re-fit the hyperparameters (Section~\ref{sec:optimization}) and factorize \(\boldsymbol{K}\);
+    \item predict the mean and standard deviation of \(u^x\), \(u^y\) and \(\tilde{p}\) on a
+          \(120 \times 41\) test grid, used for plots and error measures;
+    \item choose the artificial locations for the next step and evaluate the posterior mean and full
+          covariance there; these become \(\boldsymbol{\mu}^{t}\) and \(\boldsymbol{\Sigma}^{t,t}\).
+\end{enumerate}
+In step 4 the artificial locations are either redrawn uniformly at random in the channel at every step,
+as in \textcite{Raissi2018}, or kept fixed for the whole march. Both variants are compared in
+Chapter~\ref{ch:results}.
 
 \begin{figure}[h]
 \centering
@@ -637,6 +713,50 @@ Section~\ref{sec:uncertainty-propagation}.
 \label{fig:flowchart}
 \end{figure}
 
+
+% ---------------------------------------------------------------------------
+\section{Reference Solution and Evaluation Measures}
+\label{sec:reference}
+ 
+\paragraph{Finite-element reference.}
+The PIGP predictions are compared with a finite-element (FEM) solution of the same problem, computed with
+scikit-fem using Taylor--Hood (P2/P1) elements on a structured \(200 \times 80\) triangular mesh mapped onto the
+channel (16\,281 vertices, 32\,000 triangles). No-slip is imposed strongly on the walls, periodicity in \(x\) is
+imposed exactly by identifying the degrees of freedom at \(x=0\) and \(x=L\), and one pressure value is fixed.
+The unsteady FEM solution uses the same backward Euler scheme and the same \(\Delta t\) as the PIGP, starting from
+rest; the steady FEM solution solves the steady Stokes problem on the same mesh.
+\revnote{Add a citation for scikit-fem (Gustafsson \& McBain, 2020, \emph{Journal of Open Source Software}) to
+\texttt{references.bib}.}
+ 
+\paragraph{Accuracy.}
+At each step, the PIGP mean on the test grid is compared with the unsteady FEM solution \emph{at the same step},
+using the mean absolute error and the relative \(L_2\) error of \(u^x\) and \(u^y\).
+ 
+\paragraph{Calibration of the uncertainty.}
+The coverage is the fraction of test points at which the PIGP error lies within the predicted 95\% band,
+\(|u_{\mathrm{PIGP}} - u_{\mathrm{FEM}}| \le 2\sigma\); a well-calibrated model gives about 95\%.
+ 
+\paragraph{Steady-state time.}
+The steady-state time \(t^\ast\) of each method is measured against \emph{its own} final level, so that it reflects
+how fast the solution settles rather than how accurate the final state is. For each method, \(t^\ast\) is the first
+time at which the maximum of \(u^x\) stays within 1\% of its final value for at least 0.05 time units:
+ 
+\begin{equation}
+    \frac{\left|\max u^x(t) - u^x_{\max,\infty}\right|}{u^x_{\max,\infty}} < 0.01 .
+\end{equation}
+ 
+\noindent For the FEM, \(u^x_{\max,\infty}\) is the maximum of the steady FEM solution. For the PIGP, it is obtained by
+extrapolating the geometric decay of the step-to-step changes,
+ 
+\begin{equation}
+    u^x_{\max,\infty} = u^x_{\max,N} + d_N \frac{q}{1-q},
+\end{equation}
+ 
+\noindent where \(d_N\) is the last change of \(\max u^x\) and \(q\) the median ratio of the last eight consecutive changes.
+The accuracy of the PIGP final state is then reported separately as
+\((u^x_{\max,\infty,\mathrm{PIGP}} - u^x_{\max,\infty,\mathrm{FEM}})/u^x_{\max,\infty,\mathrm{FEM}}\).
+This extrapolation assumes a smooth decay and is only reliable when the artificial locations are fixed.
+ 
 \pagebreak
 %-------------------------------------------------------------------------------------------------------------------------
 % Results and Discussion chapters
