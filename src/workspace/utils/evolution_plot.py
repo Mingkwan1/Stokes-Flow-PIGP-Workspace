@@ -427,26 +427,29 @@ def _column_at_x(XX, YY, U, x_target):
 def plot_profiles(snaps, outdir, *, XX, YY, L, a, avg_width,
                   x_ux=(0.625, 1.875), x_uy=(0.9375, 1.5625),
                   fem=None, tag="", n_times=3, upper_half=True,
-                  cmap_name="viridis"):
+                  cmap_name="viridis", n_sigma=2.0, show_band=True):
     """Velocity profiles vs height y, laid out as in Molina et al. (2023) Fig 5.
 
         left  column : u_x at x_ux[0] (top), x_ux[1] (bottom)
         right column : u_y at x_uy[0] (top), x_uy[1] (bottom)
 
-    `n_times` snapshots are drawn per panel (first / middle / last of
-    `snaps` by default), PIGP solid and FEM dashed in the same colour, so
-    the transient is visible as a family of curves rather than one state.
+    PIGP solid, FEM dashed, same colour per time. If the snapshots carry
+    standard deviations (6-tuples: step, t, U1, U2, S1, S2), a shaded
+    +/- n_sigma band is drawn around each PIGP curve.
     """
     from pathlib import Path
     from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
     outdir = Path(outdir)
     if not snaps:
         print("[prof] no snapshots -- nothing plotted")
         return None
 
     XX, YY = np.asarray(XX), np.asarray(YY)
+    has_std = show_band and all(len(s) >= 6 for s in snaps)
+    if show_band and not has_std:
+        print("[prof] snapshots have no std (need 6-tuples) -- bands skipped")
 
-    # ---- pick n_times evenly spaced snapshots (always incl. first & last)
     ns = len(snaps)
     if n_times >= ns:
         pick = list(range(ns))
@@ -458,7 +461,6 @@ def plot_profiles(snaps, outdir, *, XX, YY, L, a, avg_width,
     cmap = plt.get_cmap(cmap_name)
     colors = [cmap(0.12 + 0.76*k/max(len(sel)-1, 1)) for k in range(len(sel))]
 
-    # ---- panels: (row, col, snaps-tuple index, symbol, x station) --------
     panels = [(0, 0, 2, r"$u^x$", x_ux[0]), (1, 0, 2, r"$u^x$", x_ux[1]),
               (0, 1, 3, r"$u^y$", x_uy[0]), (1, 1, 3, r"$u^y$", x_uy[1])]
 
@@ -480,7 +482,16 @@ def plot_profiles(snaps, outdir, *, XX, YY, L, a, avg_width,
                 mf = (yf >= 0.0) if upper_half else np.ones_like(yf, dtype=bool)
                 ax.plot(uf[mf], yf[mf], color=col, ls="--", lw=3.4, alpha=0.95)
 
-            ax.plot(u[m], y[m], color=col, ls="-", lw=2.0)
+            # ---- uncertainty band: S1 / S2 sit at tuple index si + 2 ------
+            if has_std:
+                _, sd = _column_at_x(XX, YY, s[si + 2], x_t)
+                lo, hi = u - n_sigma*sd, u + n_sigma*sd
+                ax.fill_betweenx(y[m], lo[m], hi[m], color=col,
+                                 alpha=0.28, lw=0, zorder=1)
+                ax.plot(lo[m], y[m], color=col, lw=0.8, alpha=0.7)
+                ax.plot(hi[m], y[m], color=col, lw=0.8, alpha=0.7)
+
+            ax.plot(u[m], y[m], color=col, ls="-", lw=2.0, zorder=3)
 
         ax.text(0.05, 0.95, rf"$x={x_t:g}$", transform=ax.transAxes,
                 va="top", ha="left", fontsize=FS_AXLAB)
@@ -491,12 +502,14 @@ def plot_profiles(snaps, outdir, *, XX, YY, L, a, avg_width,
         ax.tick_params(labelsize=FS_TICK)
         ax.grid(alpha=0.2)
 
-    # ---- one legend: colour = time, style = method ----------------------
     handles = [Line2D([], [], color=colors[k], lw=3.0,
                       label=rf"$t={s[1]:.3f}$") for k, s in enumerate(sel)]
     if fem is not None:
         handles += [Line2D([], [], color="0.25", ls="-",  lw=2.0, label="PIGP"),
                     Line2D([], [], color="0.25", ls="--", lw=3.4, label="FEM")]
+    if has_std:
+        handles.append(Patch(facecolor="0.25", alpha=0.28,
+                             label=rf"PIGP $\pm{n_sigma:g}\sigma$"))
     axes[0][0].legend(handles=handles, loc="lower left", fontsize=FS_TICK,
                       framealpha=0.92, handlelength=2.6)
 

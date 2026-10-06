@@ -7,6 +7,8 @@
 \usepackage{xcolor}
 \usepackage[style=apa]{biblatex}
 \usepackage[margin=2.5cm]{geometry} 
+\usepackage{booktabs}
+\usepackage{subcaption}
 
 \newcommand{\revnote}[1]{{\color{red}\textbf{[Revision note:]} #1}}
 \newcommand{\tbd}[1]{{\color{blue}\textbf{[#1]}}}
@@ -173,7 +175,7 @@ the product kernel, to calculate the kernel function.
 
 \vspace{0.5cm}
 
-\noindent so that each base kernel carries three hyperparameters, (γ, l_x, l_y).We can learn the function by inferring the value at each test positions \(X_{\star}\). For a function \(f\),
+\noindent so that each base kernel carries three hyperparameters, \(\gamma _x, \gamma _y\).We can learn the function by inferring the value at each test positions \(X_{\star}\). For a function \(f\),
 
 \vspace{0.5cm}
 
@@ -221,7 +223,7 @@ following the same construction as \textcite{Molina2023}.
 \vspace{0.3cm}
 
 At each timestep, the optimization is carried out using a Nelder--Mead downhill simplex 
-method over 500 iterations, matching the approach of \textcite{Molina2023}. The nature of our hyperparameters, 
+method over 100 iterations, matching the approach of \textcite{Molina2023}. The nature of our hyperparameters, 
 and stabilization factor of the optimization method will be discussed in full details in Chapter~\ref{ch:methodology}
 
 \vspace{0.3cm}
@@ -239,63 +241,47 @@ through a loss function. The full construction, including its extension to the
 unsteady case via backward Euler time-stepping, is given in the next chapter.
 
 % ----------------------------------------------------------------------------------------------------------------------------------------------------
-% Methodology starts here
-\chapter{Methodology}
+\chapter{Methodology}%
 \label{ch:methodology}
 
-The biggest challenge in solving this unsteady flow system is capturing the time propagation of velocity. 
-This chapter first derives a backward Euler time discretization of the unsteady Stokes equations (Section~\ref{sec:time-disc}), 
-then builds the physics-informed Gaussian process kernel that encodes both this time discretization and the steady Stokes equations,
-following \textcite{Molina2023} (Section~\ref{sec:kernel-construction}). Section~\ref{sec:periodic-channel} specializes
-this construction to the periodic channel-flow geometry used in this work, including
-how uncertainty from earlier time steps is propagated forward
-(\textcite{Raissi2018}) and how the kernel hyperparameters are optimized. Finally,
-Section~\ref{sec:inference-algorithm} describes the full time-marching inference
-algorithm.
+The challenge in solving this unsteady flow system is capturing the time propagation of velocity and pressure. 
+In this chapter, we derived a backward Euler time discretization of the unsteady Stokes equations (Section~\ref{sec:time-disc}), 
+then built a physics-informed Gaussian process kernel that encodes both this time discretization and the steady Stokes equations. 
+Section~\ref{sec:periodic-channel} goes deeper into the construction to the periodic channel-flow geometry used in this work, including
+how uncertainty from earlier time steps is propagated forward (\textcite{Raissi2018}) and how the kernel hyperparameters are optimized. 
+Finally, Section~\ref{sec:inference-algorithm} describes the full time-marching inference algorithm.
 
-\section{Time Discretization}
+\section{Time Discretization}%
 \label{sec:time-disc}
 
 There are several methods to capture time-stepping in the governing equations, but for the particular case considered here
- where boundary conditions are known at every time step, while only the initial velocity is known. The backward Euler
+where boundary conditions are known at every time step, while only the initial velocity is known. The implicait backward Euler
 method was used, in reference to \textcite{Raissi2018}. Doing so, \(u^t\) can be expressed as
 
 \begin{equation}
-    u^t = u^{t-1} + \frac{\Delta t}{\rho} \left({-\nabla p +  \eta{\nabla}^{2} u + f_{ext}}\right)
+    u^t = u^{t-1} + \frac{\Delta t}{\rho} \left({-\nabla p^t +  \eta{\nabla}^{2} u^t + f_{ext}}\right)
 \end{equation}
 
 \noindent Rearranging the equation yields, 
 
 \begin{equation}
-    u^t + \frac{\Delta t}{\rho} \left({\nabla p -  \eta{\nabla}^{2} u}\right)  = u^{t-1} + \frac{\Delta t}{\rho}f_{ext}
+    u^t + \frac{\Delta t}{\rho} \left({\nabla p^t -  \eta{\nabla}^{2} u^t}\right)  = u^{t-1} + \frac{\Delta t}{\rho}f_{ext}
 \end{equation}
 
-\noindent Here, the \(LHS\) of the equation is defined as \(\mathcal{G}\) where
+\noindent Here, the \(LHS\) of the equation is defined as \({G^{t}}\) where
 
 \begin{equation}
-    \mathcal{G} \equiv u^t + \frac{\Delta t}{\rho} \left({\nabla p -  \eta{\nabla}^{2} u}\right)
+    {G^{t}} \equiv u^t + \frac{\Delta t}{\rho} \left({\nabla p^t -  \eta{\nabla}^{2} u^t}\right)
+    \label{eq:governing-eq}
 \end{equation}
 
-\noindent substituting some terms with \(f\), where \(f\) is defined as following,
+\noindent Equation\eqref{eq:governing-eq} represent the governing equation of unknown velocity at time \(t\) (\(u^t\)) 
+in relation to the previous velocity at time \(t-1\) (\(u^{t-1}\)) and constant external force (\(f_{ext}\)). 
+The value of \({G^t}\) at time \(t\) can be calculated using the value of \(u^{t-1}\) and \(f_{ext}\),
+which will play a distinct role in predicitng unknown velocity at time \(t\) (\(u^t\)) from known velocity at time \(t-1\) (\(u^{t-1}\)).
+Throughout the work, we employed \(\rho\), and \(\eta\) to be equal to 1 to ease the calcuation.
 
-\begin{equation}
-    f = {\nabla p - \eta{\nabla}^{2} u}
-\end{equation}
-
-\noindent we get the value of \( \mathcal{G}\) as shown below.
- 
-\[\mathcal{G} \equiv u^t + \frac{\Delta t}{\rho} f\]
-\label{eq:G-lhs}
-\[\mathcal{G} \equiv u^{t-1} + \frac{\Delta t}{\rho} f_{ext}\]
-\label{eq:G-rhs}
-
-\noindent Equations \eqref{eq:G-lhs} and \eqref{eq:G-rhs} are two expressions for the same quantity: 
-\(\mathcal{G}\) can be evaluated from data at time \(t-1\) (the external force and the previous velocity),
-while it also appears, through \(f\), as a linear combination of the unknown \(u^t\) and \(p^t\). 
-This dual role is what allows \(\mathcal{G}\) to impose the physical constraint linking \(u^t\) to \(u^{t-1}\) within
-the Gaussian process framework developed next. Throughout this work \rho = \eta = 1.
-
-\section{Physics-Informed Kernel Construction}
+\section{Physics-Informed Kernel Construction}%
 \label{sec:kernel-construction}
 
 \textcite{Molina2023} developed the Stokesian process, in which the linearity of the
@@ -320,7 +306,7 @@ with unknown velocity and pressure denoted \(\boldsymbol{u^\star}\) and
         \boldsymbol{p^{\star}} \\
         \boldsymbol{u} \\
         \boldsymbol{p} \\
-        \boldsymbol{\mathcal{G}} \\
+        \boldsymbol{{G}} \\
         \boldsymbol{s}
     \end{bmatrix}
     \sim\mathcal{N}\left(0,
@@ -350,25 +336,25 @@ The appropriate prior can be re-written as following.
         \boldsymbol{p^{t}} \\
         \boldsymbol{u^{t-1}}\\
         \boldsymbol{p^{t-1}} \\
-        \boldsymbol{\mathcal{G}^{t}} \\
-        \boldsymbol{s}
+        \boldsymbol{G^{t}} \\
+        \boldsymbol{s^{t}}
     \end{bmatrix}
     \sim\mathcal{N}\left(0,
     \begin{bmatrix}
-        \boldsymbol{K^{t, t}} & \boldsymbol{Q}\\
-        \boldsymbol{Q^T} & \boldsymbol{K^{t-1, t-1}} \\
+         \boldsymbol{K_{\star \star}} & \boldsymbol{Q}\\
+        \boldsymbol{Q^T} & \boldsymbol{K} \\
     \end{bmatrix}
     \right)
     \label{eq:joint-generic}
 \end{equation}
 
 \begin{equation}
-    \boldsymbol{K^{t-1, t-1}} = 
+    \boldsymbol{K} = 
     \begin{bmatrix}
-        \boldsymbol{K_{u^{t-1}, u^{t-1}}} &\boldsymbol{K_{u^{t-1}, p^{t-1}}}& \boldsymbol{K_{u^{t-1}, G^t}}& \boldsymbol{K_{u^{t-1}, s}} \\
-        \ & \boldsymbol{K_{p^{t-1}, p^{t-1}}}& \boldsymbol{K_{p^{t-1}, G^t}}& \boldsymbol{K_{p^{t-1}, s}} \\
-        \ & & \boldsymbol{K_{G^t, G^t}} & \boldsymbol{K_{G^t, s}} \\
-        \ & & & \boldsymbol{K_{s, s}} \\
+        \boldsymbol{K_{u^{t-1}, u^{t-1}}} &\boldsymbol{K_{u^{t-1}, p^{t-1}}}& \boldsymbol{K_{u^{t-1}, G^t}}& \boldsymbol{K_{u^{t-1}, s^t}} \\
+        \ & \boldsymbol{K_{p^{t-1}, p^{t-1}}}& \boldsymbol{K_{p^{t-1}, G^t}}& \boldsymbol{K_{p^{t-1}, s^t}} \\
+        \ & & \boldsymbol{K_{G^t, G^t}} & \boldsymbol{K_{G^t, s^t}} \\
+        \ & & & \boldsymbol{K_{s^t, s^t}} \\
     \end{bmatrix}
     \label{eq:Ktrain-generic}
 \end{equation}
@@ -376,54 +362,55 @@ The appropriate prior can be re-written as following.
 \begin{equation}
     \boldsymbol{Q} = 
     \begin{bmatrix}
-        \boldsymbol{K_{u^{t}, u^{t-1}}} &\boldsymbol{K_{u^{t}, p^{t-1}}}& \boldsymbol{K_{u^{t}, G^{t}}}& \boldsymbol{K_{u^{t}, s}} \\
-        \boldsymbol{K_{p^{t}, u^{t-1}}} &\boldsymbol{K_{p^{t}, p^{t-1}}}& \boldsymbol{K_{p^{t}, G^{t}}}& \boldsymbol{K_{p^{t}, s}} \\
+        \boldsymbol{K_{u^{t}, u^{t-1}}} &\boldsymbol{K_{u^{t}, p^{t-1}}}& \boldsymbol{K_{u^{t}, G^{t}}}& \boldsymbol{K_{u^{t}, s^t}} \\
+        \boldsymbol{K_{p^{t}, u^{t-1}}} &\boldsymbol{K_{p^{t}, p^{t-1}}}& \boldsymbol{K_{p^{t}, G^{t}}}& \boldsymbol{K_{p^{t}, s^t}} \\
     \end{bmatrix}
     \label{eq:Q-generic}
 \end{equation}
 
 \begin{equation}
-    \boldsymbol{K^{t, t}} =
+    \boldsymbol{K^{\star \star}} =
     \begin{bmatrix}
         \boldsymbol{K_{u^{t}, u^{t}}} &\boldsymbol{K_{u^{t}, p^{t}}} \\
         &\boldsymbol{K_{p^{t}, p^{t}}} \\
     \end{bmatrix}
 \end{equation}
 
-At this point, a separate kernel function would be required to specify each pairwise
-correlation among the variables appearing in Equation~\eqref{eq:Ktrain-generic}.
-However, since all of these variables are linearly related through the Stokes and
-continuity equations, every correlation function can instead be expressed in terms of
-only \(d(d+1)/2\) velocity--velocity correlations \(k_{u^\alpha u^\beta}\), \(d\)
-velocity--pressure correlations \(k_{u^\alpha p}\), and a single pressure--pressure
-correlation function \(k_{pp}\), where \(d\) is the spatial dimension
-\parencite{Molina2023}. For the two-dimensional flows considered here (\(d=2\)), this
-amounts to three velocity--velocity kernels (\(k_{u^xu^x}, k_{u^xu^y}, k_{u^yu^y}\)),
-two velocity--pressure kernels (\(k_{u^xp}, k_{u^yp}\)), and the single pressure--pressure
-kernel \(k_{pp}\) -- six base correlation functions in total. Because the covariance
-kernels depend only on spatial position and not explicitly on time, the same six base
-kernels also determine the cross-time correlations (e.g. between \(u^t\) and \(u^{t-1}\))
-needed for the time-marching scheme of Section~\ref{sec:time-disc}; only the assignment
-of a given set of values to the training or test role changes from one time step to the
-next. All remaining correlations, involving \(f^\alpha\), \(s\), and \(\mathcal{G}^\alpha\)
-, are derived from these six base kernels by applying the linear differential operators
-of the governing equations, and with summation over the repeated index \(\beta\)
-+in \(k_{u^\alpha s}\), \(k_{ps}\), \(k_{f^\alpha s}\) and \(k_{ss}\), as follows
+\noindent where, \(s^t\) is defined as the incompressibility of velocity at time \(t\).
+
+Since all of these variables are linearly related through the unsteady Stokes equation and
+continuity equations, every correlation function can instead be expressed in terms of \(d(d+1)/2\) velocity--velocity correlations \(k_{u^{t}_\alpha u^{t}_\beta}\), \(d\)
+velocity--pressure correlations \(k_{u^{t}_\alpha p}\), and a single pressure--pressure
+correlation function \(k_{pp}\), where \(d\) is the spatial dimension. For the two-dimensional flows considered here (\(d=2\)), this
+amounts to three velocity--velocity kernels (\(k_{u^{t}_x u^{t}_x}, k_{u^{t}_x u^{t}_y}, k_{u^{t}_y u^{t}_y}\)),
+two velocity--pressure kernels (\(k_{u^{t}_x p}, k_{u^{t}_y p}\)), and the single pressure--pressure
+kernel \(k_{pp}\). Note that \({G^t}\) is as a linear combination of the unknown \(u^t\) and \(p^t\), thus, we can derive the kernel function of \({G^t}\) as
+kernel function of \(u^t\) and \(p^t\). All the correlation functions are derived as follows
 
 \begin{align}
-k_{u^\alpha f^\beta} &= \mathcal{D}'^\beta k_{u^\alpha p} - \eta \mathcal{L}' k_{u^\alpha u^\beta} \\
-k_{u^\alpha s} &= \mathcal{D}'^\beta k_{u^\alpha u^\beta} \\
-k_{p f^\alpha} &= \mathcal{D}'^\alpha k_{pp} - \eta \mathcal{L}' k_{p u^\alpha} \\
-k_{ps} &= \mathcal{D}'^\alpha k_{p u^\alpha} \\
-k_{f^\alpha u^\beta} &= \mathcal{D}^\alpha k_{p u^\beta} - \eta \mathcal{L} k_{u^\alpha u^\beta} \\
-k_{f^\alpha f^\beta} &= \mathcal{D}^\alpha \mathcal{D}'^\beta k_{pp} - \mathcal{D}^\alpha \eta \mathcal{L}' k_{p u^\beta} - \eta \mathcal{L} \mathcal{D}'^\beta k_{u^\alpha p} + \eta^2 \mathcal{L} \mathcal{L}' k_{u^\alpha u^\beta} \\
-k_{f^\alpha s} &= \mathcal{D}^\alpha \mathcal{D}'^\beta k_{p u^\beta} - \eta \mathcal{L} \mathcal{D}'^\beta k_{u^\alpha u^\beta} \\
-k_{ss} &= \mathcal{D}^\alpha \mathcal{D}'^\beta k_{u^\alpha u^\beta} \\
-k_{u^\alpha \mathcal{G}^{\beta}} &= k_{u^\alpha u^\beta} + \Delta t k_{u^\alpha f^\beta} \\
-k_{p \mathcal{G}^{\beta}} &= k_{p u^\beta} + \Delta t k_{p f^\beta} \\
-k_{\mathcal{G}^{\alpha} \mathcal{G}^{\beta}} &= k_{u^\alpha u^\beta} + \Delta t k_{u^\alpha f^\beta}+ \Delta t k_{f^\alpha u^\beta} + (\Delta t)^2 k_{f^\alpha f^\beta} \\
-k_{s \mathcal{G}^{\beta}} &= k_{s u^\beta} + \Delta t k_{s f^\beta} \\
+k_{u^{t}_\alpha G^{t}_\beta} &= k_{u^{t}_\alpha u^{t}_\beta} + \Delta t \mathcal{D}'^\beta k_{u^{t}_\alpha p^{t}} - \Delta t \mathcal{L}' k_{u^{t}_\alpha u^{t}_\beta} \\
+k_{u^{t}_\alpha s^{t}} &= \mathcal{D}'^\beta k_{u^{t}_\alpha u^{t}_\beta} \\
+k_{p^{t} G^{t}_\alpha} &= k_{u^{u}_\alpha p^{t}} + \Delta t \mathcal{D}'^\alpha k_{p^{t}p^{t}} - \Delta t \mathcal{L}' k_{p^{t} u^{t}_\alpha} \\
+k_{p^{t}s^{t}} &= \mathcal{D}'^\alpha k_{p^{t} u^{t}_\alpha} \\
+\begin{split}
+k_{G^{t}\alpha G^{t}_\beta} &= k_{u^{t}_\alpha u^{t}_\beta}
+ + {\Delta t} \mathcal{D}'^\beta k_{u^{t}_\alpha p^{t}}
+ - {\Delta t} \mathcal{L} k_{u^{t}_\alpha u^{t}_\beta}
+ + {\Delta t} \mathcal{D}'^\beta k_{u^{t}_\alpha p^{t}}
+ + {\Delta t}^2 \mathcal{D}^\alpha \mathcal{D}'^\beta k_{p^{t}p^{t}} \\
+&\qquad - {\Delta t}^2 \mathcal{D}'^\beta \mathcal{L} k_{u^{t}_\alpha p^{t}}
+ - {\Delta t} \mathcal{L}' k_{u^{t}_\alpha u^{t}_\beta}
+ - {\Delta t}^2 \mathcal{D}'^\alpha \mathcal{L} k_{u^{t}_\beta p^{t}}
+ + {\Delta t}^2 \mathcal{L} \mathcal{L}' k_{u^{t}_\alpha u^{t}_\beta} 
+\end{split} \\
+k_{G^{t}\alpha s^{t}} &= \mathcal{D}^\alpha \mathcal{D}'^\beta k_{p^{t} u^{t}_\beta}
+ - \Delta t  \mathcal{L} \mathcal{D}'^\beta k_{u^{t}_\alpha u^{t}_\beta} \\
+k_{s^{t}s^{t}} &= \mathcal{D}^\alpha \mathcal{D}'^\beta k_{u^{t}_\alpha u^{t}_\beta} \\
 \end{align}
+
+\noindent where the prime symbol (') indicate that the operation should is performed on the second argument; 
+eg, \((\mathcal{D}'^{\alpha}k)({\boldsymbol{x}, \boldsymbol{y}}) = \partial_{x_\alpha} k_{\boldsymbol{x}, \boldsymbol{y}}\)
+and \((\mathcal{D}^{\alpha}k)({\boldsymbol{x}, \boldsymbol{y}}) = \partial_{y_\alpha} k_{\boldsymbol{x}, \boldsymbol{y}}\)
 
 The general posterior is then
 
@@ -436,26 +423,26 @@ The general posterior is then
 \begin{bmatrix}
     \boldsymbol{u^{t-1}} \\
     \boldsymbol{p^{t-1}} \\
-    \boldsymbol{\mathcal{G}^{t}} \\
-    \boldsymbol{s} \\
+    \boldsymbol{{G}^{t}} \\
+    \boldsymbol{s^t} \\
 \end{bmatrix}
 \sim\mathcal{N}\left(
-    \boldsymbol{Q K^{-1}} \begin{bmatrix} \boldsymbol{u^{t-1}} \\ \boldsymbol{p^{t-1}} \\ \boldsymbol{\mathcal{G}^{t}} \\ \boldsymbol{s} \\\end{bmatrix}, 
-    \boldsymbol{K_{t, t}} - \boldsymbol{Q K^{-1} Q^T}
+    \boldsymbol{Q K^{-1}} \begin{bmatrix} \boldsymbol{u^{t-1}} \\ \boldsymbol{p^{t-1}} \\ \boldsymbol{{G}^{t}} \\ \boldsymbol{s^t} \\\end{bmatrix}, 
+    \boldsymbol{K^{\star \star}} - \boldsymbol{Q K^{-1} Q^T}
     \right)
     \label{eq:posterior-generic}
 \end{equation}
 
 % ---------------------------------------------------------------------------
-\section{Uncorrelated Velocity and Pressure Priors}
+\section{Uncorrelated Velocity and Pressure Priors}%
 \label{sec:zero-up}
  
 The six base kernels above allow the prior to encode an \emph{a priori} correlation between
-the velocity and the pressure through \(k_{u^xp}\) and \(k_{u^yp}\). In this work these two
+the velocity and the pressure through \(k_{u^{t}_x p}\) and \(k_{u^{t}_y p}\). In this work these two
 cross-kernels are set to zero,
  
 \begin{equation}
-    k_{u^\alpha p}(\boldsymbol{x},\boldsymbol{x}') = k_{p u^\alpha}(\boldsymbol{x},\boldsymbol{x}') = 0,
+    k_{u^{t}_\alpha p}(\boldsymbol{x},\boldsymbol{x}') = k_{p u^{t}_\alpha}(\boldsymbol{x},\boldsymbol{x}') = 0,
     \qquad \alpha \in \{x, y\},
     \label{eq:zero-up}
 \end{equation}
@@ -464,41 +451,42 @@ cross-kernels are set to zero,
 any data are observed. This does not mean that velocity and pressure are physically unrelated --
 the pressure gradient drives the flow. The coupling between the two is instead supplied by the
 physics constraints: the momentum rows \(\mathcal{G}^\alpha\) contain both
-\(\mathcal{D}^\alpha p\) and \(\mathcal{L}u^\alpha\), and the continuity rows \(s\) constrain \(\boldsymbol{u}\).
+\(\mathcal{D}^\alpha p\) and \(\mathcal{L}u^{t}_\alpha\), and the continuity rows \(s\) constrain \(\boldsymbol{u^{t}}\).
 Once the GP is conditioned on these rows, the posterior velocity and pressure are correlated even
 though the prior treats them as independent. The assumption is therefore that the prior
 cross-correlation carries little information that is not already imposed by the governing equations.
 Independent priors for coupled fields are also the choice made by \textcite{Raissi2018} for
 systems of equations.
  
-With \eqref{eq:zero-up}, the derived kernels simplify to
+With\eqref{eq:zero-up}, the derived kernels simplify to
  
 \begin{align}
-k_{u^\alpha f^\beta} &= - \eta \mathcal{L}' k_{u^\alpha u^\beta}, &
-k_{p f^\alpha} &= \mathcal{D}'^\alpha k_{pp}, &
-k_{ps} &= 0, \\
-k_{f^\alpha u^\beta} &= - \eta \mathcal{L} k_{u^\alpha u^\beta}, &
-k_{f^\alpha s} &= - \eta \mathcal{L} \mathcal{D}'^\beta k_{u^\alpha u^\beta}, &
-k_{p \mathcal{G}^{\beta}} &= \Delta t\, \mathcal{D}'^\beta k_{pp}, \\
-k_{f^\alpha f^\beta} &= \mathcal{D}^\alpha \mathcal{D}'^\beta k_{pp} + \eta^2 \mathcal{L} \mathcal{L}' k_{u^\alpha u^\beta}, & & & &
+k_{u^{t}_\alpha G^{t}_\beta} &= k_{u^{t}_\alpha u^{t}_\beta} - \Delta t \mathcal{L}' k_{u^{t}_\alpha u^{t}_\beta}, \\
+k_{p^{t} G^{t}_\alpha} &= \Delta t \mathcal{D}'^\alpha k_{p^{t}p^{t}}, \\
+k_{p^{t}s^{t}} &= 0, \\
+k_{G^{t}_\alpha s^{t}} &= \mathcal{L} \mathcal{D}'^\beta k_{u^{t}_\alpha u^{t}_\beta}, \\
+\begin{split}
+k_{G^{t}_\alpha G^{t}_\beta} &= k_{u^{t}_\alpha u^{t}_\beta}
+ - \Delta t \mathcal{L} k_{u^{t}_\alpha u^{t}_\beta}
+ + \Delta t^2 \mathcal{D}^\alpha \mathcal{D}'^\beta k_{p^{t}p^{t}} \\
+&\qquad - \Delta t \mathcal{L}' k_{u^{t}_\alpha u^{t}_\beta}
+ + \Delta t^2 \mathcal{L} \mathcal{L}' k_{u^{t}_\alpha u^{t}_\beta}
+\end{split}
 \end{align}
  
-\noindent while \(k_{u^\alpha s}\) and \(k_{ss}\) are unchanged. Only four base kernels remain,
-\(k_{u^xu^x}\), \(k_{u^xu^y}\), \(k_{u^yu^y}\) and \(k_{pp}\), each with three hyperparameters
+\noindent while \(k_{u^t_\alpha s^t}\) and \(k_{s^t s^t}\) are unchanged. Only four base kernels remain,
+\(k_{u^t_x u^t_x}\), \(k_{u^t_x u^t_y}\), \(k_{u^t_y u^t_y}\) and \(k_{pp}\), each with three hyperparameters
 \((\gamma, l_x, l_y)\), so the number of hyperparameters is reduced from 18 to 12.
 This has three practical consequences:
 \begin{enumerate}
     \item the Nelder--Mead search runs in a 12-dimensional rather than an 18-dimensional space,
           which matters because the number of iterations per step is limited;
-    \item roughly half of the derivative kernels that involve \(k_{u^\alpha p}\) no longer need to be
+    \item roughly half of the derivative kernels that involve \(k_{u^t_\alpha p}\) no longer need to be
           evaluated, which reduces the cost of building \(\boldsymbol{K}\);
-    \item with the velocity and pressure blocks independent, the prior over \((\boldsymbol{u}, p)\) is a
+    \item with the velocity and pressure blocks independent, the prior over \((\boldsymbol{u^t}, p)\) is a
           valid covariance whenever the velocity block and the pressure block are valid individually,
           which removes one way in which the joint kernel can fail to be positive semi-definite.
 \end{enumerate}
-\revnote{Suggested addition for the results chapter: one run with the cross-kernels switched back on,
-to show quantitatively that this assumption does not degrade the accuracy.}
- 
 % ---------------------------------------------------------------------------
 
 \section{Application to Periodic Channel Flow}
@@ -508,7 +496,7 @@ to show quantitatively that this assumption does not degrade the accuracy.}
 pressure difference \(\Delta p\) between the inlet \( (x=0) \) and outlet \( (x=L) \)
 
 \begin{align}
-    u^\alpha(x+L,y) &= u^\alpha(x,y) \\
+    u^t_\alpha(x+L,y) &= u^t_\alpha(x,y) \\
     p(x+L,y) &= p(x,y) + \Delta p.
 \end{align}
 
@@ -570,34 +558,33 @@ here are noiseless boundary data, the uncertainty is zero.The posterior changes 
 \section{Uncertainty propagation}
 \label{sec:uncertainty-propagation}
 
-\noindent Following \textcite{Raissi2018}, since \(\boldsymbol{\mathcal{G}^t}\) is built from
-the previous step's posterior mean \(\boldsymbol{\mu^{t-1}}\) rather than an exactly known
-value, its uncertainty \(\boldsymbol{u^{t-1}} \sim \mathcal{N}(\boldsymbol{\mu^{t-1}},
-\boldsymbol{\Sigma^{t-1,t-1}})\) must be marginalized out to obtain a consistent predictive
-covariance. Doing so gives
-
+\noindent Following \textcite{Raissi2018}, \(\boldsymbol{\mathcal{G}^t}\) is built from the previous
+step's posterior mean, \(\boldsymbol{\mathcal{G}^t} = \boldsymbol{\mu^{t-1}} +
+\frac{\Delta t}{\rho}\boldsymbol{f_{ext}}\), rather than from an exactly known value. Its
+uncertainty is accounted for by treating the posterior variance of the previous step as
+observation noise on the \(\boldsymbol{\mathcal{G}^t}\) rows, while all other training
+rows (wall, periodicity and continuity) are noiseless:
 \begin{equation}
-    \begin{bmatrix}\boldsymbol{u^t}\\\boldsymbol{p^t}\end{bmatrix}
-    \ \Big|\ \boldsymbol{u_b},\ S^1_L\boldsymbol{u},\ S^1_L\boldsymbol{p},\ \boldsymbol{s}
-    \ \sim\ \mathcal{N}\!\left(\boldsymbol{\mu^t},\ \boldsymbol{\Sigma^{t,t}}\right)
+    \tilde{\boldsymbol{K}} = \boldsymbol{K}
+    + \begin{bmatrix} \boldsymbol{0} & \boldsymbol{0} \\
+      \boldsymbol{0} & \operatorname{diag}\!\left(\boldsymbol{\Sigma^{t-1,t-1}}\right)
+      \end{bmatrix}
+    + \varepsilon^2 \boldsymbol{I},
+    \label{eq:K-noise}
 \end{equation}
-
-\noindent where
-
+where the lower-right block corresponds to \(\boldsymbol{\mathcal{G}^t}\). The posterior
+at time \(t\) is then
 \begin{equation}
-    \boldsymbol{\mu^t} = \boldsymbol{Q K^{-1}}
-    \begin{bmatrix} \boldsymbol{u_b} \\ S^1_L\boldsymbol{u} \\ S^1_L\boldsymbol{p} \\ \boldsymbol{\mu^{t-1}} + \frac{\Delta t}{\rho}\boldsymbol{f_{ext}} \\ \boldsymbol{s} \end{bmatrix}
+    \boldsymbol{\mu^t} = \boldsymbol{Q}\tilde{\boldsymbol{K}}^{-1}\boldsymbol{y}, \qquad
+    \boldsymbol{\Sigma^{t,t}} = \boldsymbol{K^{t,t}} - \boldsymbol{Q}\tilde{\boldsymbol{K}}^{-1}\boldsymbol{Q^T},
+    \label{eq:posterior-propagated}
 \end{equation}
-
-\begin{equation}
-    K = [[K_bb, K_bG], [K_Gb, K_GG + diag(Σ^{t-1,t-1})]] + ε² I
-    \Sigma^{t,t} = K^{t,t} - Q K^{-1} Q^T
-\end{equation}
-
-\noindent and \(\boldsymbol{M}\) is zero everywhere except in the block corresponding to
-\(\boldsymbol{\mathcal{G}^t}\), where it equals \(\boldsymbol{\Sigma^{t-1,t-1}}\), the previous
-step's posterior covariance evaluated at the artificial training locations. This is the
-propagated-uncertainty analogue of equation (13) in \textcite{Raissi2018}.
+with \(\boldsymbol{y} = [\boldsymbol{u_b},\ S^1_L\boldsymbol{u},\ S^1_L\tilde{\boldsymbol{p}},\
+\boldsymbol{\mathcal{G}^t},\ \boldsymbol{s}]^T\). Only the diagonal of
+\(\boldsymbol{\Sigma^{t-1,t-1}}\) is used. The additional correction term
+\(\boldsymbol{Q}\tilde{\boldsymbol{K}}^{-1}\boldsymbol{M}\tilde{\boldsymbol{K}}^{-1}\boldsymbol{Q^T}\)
+of \textcite{Raissi2018} is not applied, since the uncertainty of
+\(\boldsymbol{\mu^{t-1}}\) already enters through \(\tilde{\boldsymbol{K}}\).
 
 \section{Hyperparameters Optimization}
 \label{sec:optimization}
@@ -614,13 +601,10 @@ marginalization,
 p(f(\boldsymbol{X})|\boldsymbol{X},\boldsymbol{\theta},I)\,p(\boldsymbol{\theta}|I)\), following
 the same construction as \textcite{Molina2023}.
 
-\vspace{0.3cm}
-\noindent following \textcite{Molina2023}, we take \(p(\boldsymbol{\theta}|I)\) to be an
+We take \(p(\boldsymbol{\theta}|I)\) to be an
 independent Jeffreys prior for each hyperparameter,
 
 \begin{equation}
-    \log p(\boldsymbol{\theta}|I) = \sum_{i=1}^{N_\theta} \log p(\theta_i|I)
-    = -\sum_{i=1}^{N_\theta} \log \theta_i.
     -\log p(\boldsymbol{\theta}|I) = \sum_{k} \left( \gamma_k + \log l_{x,k} + \log l_{y,k} \right) + \text{const.},
     \qquad k \in \{u^xu^x,\ u^xu^y,\ u^yu^y,\ pp\}.
 \end{equation}
@@ -631,14 +615,14 @@ The initial hyperparameter values \((\gamma_1, \gamma_2, \log l) = (1.2, 0, -1.2
 are taken from \textcite{Molina2023}, where \(\gamma_1\) is the initial variance scale
 for the \(u\)--\(u\) and \(p\)--\(p\) correlations, \(\gamma_2\) the initial variance
 scale for \(u\)--\(p\) correlations, and \(l\) the initial length scale, shared across
-all correlations at initialization. Unlike \textcite{Molina2023}, where \(\gamma_2=0\)
-is only the starting point of a full optimization run over all hyperparameters,The velocity--pressure amplitude of 0 does not apply here, since those kernels are removed (§2.3)
+all correlations at initialization. Unlike \textcite{Molina2023}, where \(\gamma_2 = 0\)
+is only the starting point of a full optimization run over all hyperparameters, the
+velocity--pressure amplitude of 0 does not apply here, since those kernels are removed
+(see §2.3).
 
-The 12 hyperparameters are optimized with an adaptive Nelder--Mead downhill simplex method, limited to
-100 iterations with a tolerance of 10^{-2}. ... each fit is warm-started from the previous step's optimum,
-The velocity--pressure amplitude of 0 used by Molina does not apply here, since those kernels are removed (§2.3).as recommended by \textcite{Raissi2018}
-A jitter term is added to the training covariance diagonal for numerical stability, as
-in \textcite{Molina2023},
+The 12 hyperparameters are optimized with Nelder--Mead downhill simplex method, limited to
+100 iterations with a tolerance of \(10^{-2}\). Each fit is warm-started from the previous step's optimum,
+as recommended by \textcite{Raissi2018}. A jitter term is added to the training covariance diagonal for numerical stability.
 
 \begin{equation}
     \boldsymbol{K} \to \boldsymbol{K} + \epsilon^2\boldsymbol{I}, \qquad \epsilon = 10^{-3}.
@@ -656,12 +640,7 @@ The training set, identical in size at every step, consists of:
     \item 340 artificial points, each used for \(\mathcal{G}^x\) and \(\mathcal{G}^y\) (680 rows);
     \item 340 continuity points \(s\) on a fixed \(20 \times 17\) grid mapped onto the channel (340 rows);
 \end{itemize}
-\noindent giving \(N = 1313\) training rows.
-\revnote{Previously ``\(340\times2\) points for \(\mathcal{G}\), 60\(\times\)2 wall points, and 270 points randomly
-sampled from 500 predicted test points''. The code uses 62 points per wall, 340 artificial points, and the
-artificial locations are drawn directly in the channel, not sub-sampled from the test grid.}
- 
-\noindent At each step \(t = 1, \dots, N_t\):
+\noindent giving \(N = 1313\) training rows. At each step \(t = 1, \dots, N_t\):
 \begin{enumerate}
     \item build \(\boldsymbol{y}\) with \(\mathcal{G}^t = \boldsymbol{\mu}^{t-1} + \Delta t\,\boldsymbol{f}_{ext}\) at the current
           artificial locations, and the noise block \(\operatorname{diag}(\boldsymbol{\Sigma}^{t-1,t-1})\);
@@ -671,8 +650,9 @@ artificial locations are drawn directly in the channel, not sub-sampled from the
     \item choose the artificial locations for the next step and evaluate the posterior mean and full
           covariance there; these become \(\boldsymbol{\mu}^{t}\) and \(\boldsymbol{\Sigma}^{t,t}\).
 \end{enumerate}
-In step 4 the artificial locations are either redrawn uniformly at random in the channel at every step,
-as in \textcite{Raissi2018}, or kept fixed for the whole march. Both variants are compared in
+In step 4 the artificial locations are either resampled at every step, as 340 points
+drawn without replacement from a fixed pool of 680 locations sampled uniformly in the
+channel, or kept fixed for the whole march. Both variants are compared in
 Chapter~\ref{ch:results}.
 
 \begin{figure}[h]
@@ -709,13 +689,13 @@ Chapter~\ref{ch:results}.
     node[midway, left, align=center] {$n$ loops} (artpts.west);
 
 \end{tikzpicture}
-\caption{Flowchart of the predictive simulation loop.}
+\caption{Flowchart of the predictive simulation loop.}%
 \label{fig:flowchart}
 \end{figure}
 
 
 % ---------------------------------------------------------------------------
-\section{Reference Solution and Evaluation Measures}
+\section{Reference Solution and Evaluation Measures}%
 \label{sec:reference}
  
 \paragraph{Finite-element reference.}
@@ -725,8 +705,6 @@ channel (16\,281 vertices, 32\,000 triangles). No-slip is imposed strongly on th
 imposed exactly by identifying the degrees of freedom at \(x=0\) and \(x=L\), and one pressure value is fixed.
 The unsteady FEM solution uses the same backward Euler scheme and the same \(\Delta t\) as the PIGP, starting from
 rest; the steady FEM solution solves the steady Stokes problem on the same mesh.
-\revnote{Add a citation for scikit-fem (Gustafsson \& McBain, 2020, \emph{Journal of Open Source Software}) to
-\texttt{references.bib}.}
  
 \paragraph{Accuracy.}
 At each step, the PIGP mean on the test grid is compared with the unsteady FEM solution \emph{at the same step},
@@ -743,6 +721,7 @@ time at which the maximum of \(u^x\) stays within 1\% of its final value for at 
  
 \begin{equation}
     \frac{\left|\max u^x(t) - u^x_{\max,\infty}\right|}{u^x_{\max,\infty}} < 0.01 .
+    \label{eq:steady-criterion}
 \end{equation}
  
 \noindent For the FEM, \(u^x_{\max,\infty}\) is the maximum of the steady FEM solution. For the PIGP, it is obtained by
@@ -760,72 +739,146 @@ This extrapolation assumes a smooth decay and is only reliable when the artifici
 \pagebreak
 %-------------------------------------------------------------------------------------------------------------------------
 % Results and Discussion chapters
-\chapter{Results}
+\chapter{Results}%
 \label{ch:results}
 
 This chapter presents the inferred velocity field for pressure-driven, unsteady Stokes
 flow in two two-dimensional geometries, using the time-marching physics-informed
-Gaussian process developed in Chapter~\ref{ch:methodology}. Section~\ref{sec:results-plates}
-considers flow between two parallel plates, where a closed-form analytical solution was used for validation. 
-Section~\ref{sec:results-sinusoidal} considers flow through a
-sinusoidal channel, following the geometry of \textcite{Molina2023}, where a
-finite-element (FEM) solution is instead used as the reference.
+Gaussian process (PIGP) developed in Chapter~\ref{ch:methodology}.
+Section~\ref{sec:results-plates} considers flow between two parallel plates, for which
+a closed-form analytical solution is used for validation.
+Section~\ref{sec:results-sinusoidal} considers flow through a sinusoidal channel,
+following the geometry of \textcite{Molina2023}, for which a finite-element (FEM)
+solution is instead used as the reference.
 
 
-\section{Pressure-driven flow between parallel plates}
+\section{Pressure-driven flow between parallel plates}%
 \label{sec:results-plates}
 
-For Poiseuille flow between two stationary plates,
-initially at rest, with a pressure gradient \(dp/dx\) suddenly applied at \(t=0\), the
-unsteady Stokes equations \eqref{eq:unsteady} admit the closed-form series solution
-of \textcite{Munoz2012} in section 4.3. Writing the velocity as the sum of the steady plane
+For Poiseuille flow between two stationary plates, initially at rest, with a pressure
+gradient \(dp/dx\) suddenly applied at \(t=0\), the unsteady Stokes
+equations~\eqref{eq:unsteady} admit the closed-form series solution of
+\textcite[Sec.~4.3]{Munoz2012}. Writing the velocity as the sum of the steady plane
 Poiseuille profile and a decaying transient part, \(u_x(y,t) = u_0(y) + u_e(y,t)\), and
 specializing their result to two stationary plates (\(U=0\)) over the domain
-\(y\in[-0.5,0.5]\) used in this work (via the shift \(y'=y+0.5\in[0,1]\)),
+\(y\in[-0.5,0.5]\) used in this work (via the shift \(y'=y+0.5\in[0,1]\)), gives
 
-\begin{align}
-    u_x(y,t) &= -\frac{y'(1-y')}{2\eta}\frac{dp}{dx}
-    \;-\; \frac{2}{\eta}\frac{dp}{dx}
+\begin{equation}
+    u_x(y,t) = -\frac{y'(1-y')}{2\eta}\frac{dp}{dx}
+    \;+\; \frac{1}{\eta}\frac{dp}{dx}
     \sum_{\substack{n=1\\ n\ \mathrm{odd}}}^{\infty}
-    \frac{4}{(n\pi)^3}\, e^{-n^2\pi^2 \nu t}\sin(n\pi y'), \\
-    y' &= y+0.5,\qquad \nu = \eta/\rho,
+    \frac{4}{(n\pi)^3}\, e^{-n^2\pi^2 \nu t}\sin(n\pi y'),
+    \qquad y' = y+0.5,\quad \nu = \eta/\rho,
     \label{eq:analytical-plates}
-\end{align}
+\end{equation}
 
-\noindent which converges to the steady plane Poiseuille profile as \(t\to\infty\). Here, 
-the value of \(dp/dx = -12.0\). This analytical solution provides a direct, independent check of the PIGP solution.
+\noindent which satisfies \(u_x(y,0)=0\) and converges to the steady plane Poiseuille
+profile as \(t\to\infty\). In this work, \(dp/dx = -12\) and \(\eta=\rho=1\), so that the
+steady centreline velocity is \(u_x(0,t\to\infty)=1.5\). This analytical solution
+provides a direct, independent check of the PIGP solution.
 
-The time step was \(\Delta t = 0.01\), with \(50\) time-marching loops from \(t=0\), using
-\(270\) artificial training points per step (Section~\ref{sec:inference-algorithm}).
-Figure~\ref{fig:evolution_ux_plates} shows the predicted \(u_x\) field at five time
+The simulation used a time step of \(\Delta t = 0.01\) and \(100\) time-marching steps
+from \(t=0\) to \(t=1\), with \(340\) artificial training points per step
+(Section~\ref{sec:inference-algorithm}). At each step, the training points were
+resampled from the set of generated test points.
+Figure~\ref{fig:evolution_ux_plates} shows the predicted \(u_x\) field at three time
 snapshots, compared against Equation~\eqref{eq:analytical-plates}.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png}
-\caption{Evolution of \(u_x\) for pressure-driven flow between parallel plates,
-\(\Delta t=0.05\), 10 loops, 270 artificial points per step, compared against the
-analytical solution of Equation~\eqref{eq:analytical-plates}
-. Top row: PIGP posterior mean. Middle row: analytical
-solution. Bottom two rows: absolute and relative error.}
+\begin{subfigure}[b]{0.45\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../resource/pics/pigp_vs_analytical_fix.png}
+    \caption{Predicted \(u_x\) versus analytical solution.}%
 \label{fig:evolution_ux_plates}
-\end{figure}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../resource/pics/uncertainty_ux_plates.png}
+    \caption{Maximum and mean predictive uncertainty \(2\sigma_{u_x}\).}%
+\label{fig:uncertainty_ux_plates}
+\end{subfigure}
+\caption{Pressure-driven flow between parallel plates
+(\(\Delta t=0.01\), 100 steps, 340 artificial points per step).
+(a)~Evolution of \(u_x\) compared against the analytical solution of
+Equation~\eqref{eq:analytical-plates}. (b)~Evolution of the predictive uncertainty.}%
+\label{fig:plates}
+\end{figure}    
 
-The relative \(L_2\) error remains at \(0.1\)--\(0.2\%\) across all five snapshots
-(\(t=0.1\) to \(t=0.5\)), with no clear growth trend over the ten loops, indicating that
-error does not compound significantly over this time horizon at this step size. The
-largest local errors, visible in the third and fourth rows of
-Figure~\ref{fig:evolution_ux_plates}, are concentrated near the channel walls
-(\(y\to\pm0.5\)) rather than at the channel centerline. This is consistent with the
-no-slip boundary condition producing the sharpest velocity gradients in \(u_x\) near the
-walls, where the squared-exponential kernel's finite length scale is least able to
-resolve the local curvature of the profile relative to the smoother, near-parabolic
-region at the channel core.
+Table~\ref{tab:centreline_plates} compares the maximum velocity, located at the
+centreline, predicted by the PIGP with the analytical solution.
 
-\section{Pressure driven flow through a sinusoidal channel}
+\begin{table}[H]
+\centering
+\caption{Centreline velocity \(u_x(0,t)\): PIGP versus analytical solution
+(\(\Delta t = 0.01\), 100 steps).}%
+\label{tab:centreline_plates}
+\begin{tabular}{cccc}
+\toprule
+\(t\) & PIGP & Analytical & Relative error (\%) \\
+\midrule
+0.1 & 0.89636 & 0.92303 & 2.89 \\
+0.2 & 1.26410 & 1.28496 & 1.62 \\
+0.3 & 1.40775 & 1.41985 & 0.85 \\
+0.4 & 1.46364 & 1.47013 & 0.44 \\
+0.5 & 1.48551 & 1.48887 & 0.23 \\
+0.6 & 1.49407 & 1.49585 & 0.12 \\
+0.7 & 1.49741 & 1.49845 & 0.07 \\
+0.8 & 1.49860 & 1.49942 & 0.05 \\
+0.9 & 1.49899 & 1.49979 & 0.05 \\
+1.0 & 1.49925 & 1.49992 & 0.04 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The relative error is largest at early times (\(2.89\%\) at \(t=0.1\)), where the
+transient is steepest, and decreases monotonically to \(0.04\%\) at \(t=1\) as the flow
+approaches steady state. The PIGP slightly underpredicts the analytical solution at
+all times. Most of this difference is caused by the backward Euler time
+discretization rather than by the GP inference: compared with the FEM, which uses the
+same time discretization, the mean absolute error of the PIGP is only
+\(1.5\times10^{-4}\) at \(t=0.01\) and remains below \(1.7\times10^{-3}\) throughout
+the march.
+
+The same holds for the steady-state time. Using the criterion of
+Section~\ref{sec:reference} (Equation~\eqref{eq:steady-criterion}), both the PIGP and
+the FEM reach steady state at \(t_\star = 0.50\), so the PIGP recovers the
+steady-state time of the reference exactly at the time resolution
+\(\pm\Delta t = \pm 0.01\). The analytical solution reaches the same criterion slightly
+earlier, at \(t \approx 0.47\). Since the PIGP and the FEM agree, this difference is
+again attributable to the time discretization, which slows the approach to steady
+state in both methods. The final level of the PIGP is \(0.05\%\) below the steady
+value of \(1.5\).
+
+Figure~\ref{fig:uncertainty_ux_plates} shows the evolution of the maximum and mean
+predictive uncertainty \(2\sigma_{u_x}\) over the domain. The uncertainty remains
+small throughout, with the maximum \(2\sigma_{u_x}\) mostly between
+\(2.3\times10^{-3}\) and \(4\times10^{-3}\), roughly three orders of magnitude below
+the steady centreline velocity, and it grows slowly with time as the uncertainty of
+each step is propagated into the next (Section~\ref{sec:uncertainty-propagation}). The
+curves are not smooth: both show step-to-step fluctuations, with isolated dips at
+\(t = 0.41\) and \(t = 0.88\). The predictive band is well calibrated at early times,
+with a coverage of \(100\%\) over the first six steps, but becomes overconfident as
+the error accumulates during the transient, falling to about \(37\%\) for \(u_x\) at
+\(t \approx 0.2\)--\(0.4\). Unlike in the sinusoidal channel
+(Section~\ref{sec:results-sinusoidal}), the coverage partly recovers once the flow
+approaches steady state, reaching \(49\%\) at \(t=1\), since the error stops growing
+(the mean absolute error remains between \(1.0\times10^{-3}\) and
+\(1.6\times10^{-3}\) after \(t \approx 0.3\)) while the uncertainty continues to
+increase slightly. The PIGP also predicts a small spurious cross-stream velocity, with
+a mean absolute value of about \(1.2\times10^{-3}\) at \(t=1\), where the exact
+\(u_y\) is zero.
+
+These results show that the PIGP accurately reproduces the unsteady pressure-driven
+flow between parallel plates, including both the transient and the steady-state time,
+with errors dominated by the time discretization rather than by the GP inference.
+
+%--------------------------------------------
+\section{Pressure driven flow through a sinusoidal channel}%
 \label{sec:results-sinusoidal}
 
-Following \textcite{Molina2023}, velocities for pressure-driven flow through a
+The velocities for pressure-driven flow through a
 sinusoidal channel of width
 
 \begin{equation}
@@ -835,59 +888,378 @@ sinusoidal channel of width
 \noindent were predicted and compared against a finite-element (FEM) reference
 solution, using both the absolute error \(|\Delta u| = |u_{\mathrm{PIGP}} -
 u_{\mathrm{FEM}}|\) and the relative error \(|\Delta u|/|u_{\mathrm{FEM}}|\) to assess
-accuracy. The time step was \(\Delta t = 0.05\), with ten time-marching loops from
-\(t=0\), using \(270\) artificial training points per step (Section~\ref{sec:inference-algorithm}).
-
+accuracy. The time step was \(\Delta t = 0.01\), with \(40\) time-marching loops from
+\(t=0\), using \(340\) artificial training points per step (Section~\ref{sec:inference-algorithm}).
 Figures~\ref{fig:evolution_ux_sinusoidal} and \ref{fig:evolution_uy_sinusoidal} show
-the predicted \(u_x\) and \(u_y\) fields at five time snapshots, compared against FEM.
+the predicted \(u_x\) and \(u_y\) fields at three time snapshots, compared against FEM results.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png}
+\includegraphics[width=0.85\textwidth]{../resource/pics/evolution_ux_5a470a5f81171f83.png}
 \caption{Evolution of \(u_x\) for pressure-driven flow through a sinusoidal channel,
-\(\Delta t=0.05\), 10 loops, 270 artificial points per step. Top row: PIGP posterior
-mean. Middle row: FEM reference. Bottom two rows: absolute and relative error.}
+\(\Delta t=0.01\), 40 loops, 340 artificial points per step. Top row: PIGP posterior
+mean. Middle row: FEM reference. Bottom two rows: absolute and relative error.}%
 \label{fig:evolution_ux_sinusoidal}
 \end{figure}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png}
+\includegraphics[width=0.85\textwidth]{../resource/pics/evolution_uy_5a470a5f81171f83.png}
 \caption{Evolution of \(u_y\) for pressure-driven flow through a sinusoidal channel,
-\(\Delta t=0.05\), 10 loops, 270 artificial points per step. Top row: PIGP posterior
-mean. Middle row: FEM reference. Bottom two rows: absolute and relative error.}
+\(\Delta t=0.01\), 40 loops, 340 artificial points per step. Top row: PIGP posterior
+mean. Middle row: FEM reference. Bottom two rows: absolute and relative error.}%
 \label{fig:evolution_uy_sinusoidal}
 \end{figure}
 
-The relative \(L_2\) error in \(u_x\) is non-monotonic over the five snapshots,peaking at \(0.6\%\) at \(t=0.3\), before falling
-to \(0.3\%\) by \(t=0.5\). This is consistent with the flow's transient adjustment:
-early times remain close to the exactly-known zero-velocity initial condition, so
-error is naturally small; as the flow develops and accelerates through the narrowest
-point of the channel, spatial velocity gradients become sharper and harder for the
-finite-length-scale kernel to resolve, peaking around \(t=0.3\); as the flow
-approaches its quasi-steady state at later times, gradients stabilize and the error
-recedes.
+Additonally, Figure~\ref{fig:profiles_sinusoidal} shows velocity profiles across the
+channel at four axial positions and four times. The \(u_x\) profiles are taken at the
+widest (\(x = L/4 = 0.625\)) and narrowest (\(x = 3L/4 = 1.875\)) cross-sections, and
+the \(u_y\) profiles at \(x = 3L/8 = 0.9375\) and \(x = 5L/8 = 1.5625\), where the wall
+converges and the cross-stream velocity is largest. Since \(u_x\) is symmetric and
+\(u_y\) antisymmetric about the centreline, only the upper half of the channel
+(\(y \ge 0\)) is shown.
 
-Errors are consistently larger for \(u_y\) than for \(u_x\) across all five snapshots.
-This is expected on physical grounds rather than being a shortcoming of the PIGP
-inference itself: in a mildly-perturbed sinusoidal channel, \(u_x\) is the dominant,
-order-one velocity component along the channel axis, while \(u_y\) captures only the
-smaller cross-stream motion induced by the wall's curvature. Since relative error
-normalizes the absolute error by the local magnitude of the reference field, the same
-absolute prediction error corresponds to a substantially larger relative error in
-\(u_y\), simply because \(|u_y| \ll |u_x|\) throughout most of the domain. This is also
-consistent with the errors in this section being larger overall than those reported
-for the parallel-plate case in Section~\ref{sec:results-plates}
-(\(0.1\)--\(0.2\%\)), reflecting the added geometric complexity of the sinusoidal wall.
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{../resource/pics/profiles_5a470a5f81171f83.png}
+\caption{Velocity profiles for pressure-driven flow through a sinusoidal channel
+(\(\Delta t=0.01\), 40 steps, 340 artificial points per step) at
+\(t = 0.08, 0.16, 0.32, 0.40\). Left: \(u_x\) at \(x=0.625\) (top) and \(x=1.875\)
+(bottom). Right: \(u_y\) at \(x=0.9375\) (top) and \(x=1.5625\) (bottom). Solid lines:
+PIGP posterior mean; dashed lines: FEM reference at the same time step.}%
+\label{fig:profiles_sinusoidal}
+\end{figure}
+
+Using the criterion of Section~\ref{sec:reference}, the PIGP reaches
+steady state at \(t_\star = 0.28\), compared with \(t_\star = 0.32\) for the FEM, a
+relative difference of \(12.5\%\) at a time resolution of
+\(\pm\Delta t = \pm 0.01\). 
+
+
+This earlier steady-state time does not indicate faster dynamics. It is a consequence
+of the PIGP converging to a lower final level. Since \(t_\star\) is measured against
+each method's \emph{own} final level, the PIGP is compared with its extrapolated final
+maximum velocity \(u^x_{\max,\infty} = 1.292\), whereas the FEM is compared with
+\(1.309\), a difference of \(-1.31\%\). The PIGP maximum velocity crosses \(99\%\) of
+its own final level (\(1.279\)) at \(t = 0.28\), but never reaches \(99\%\) of the FEM
+level (\(1.296\)) within the simulated time: its value at \(t=0.40\) is \(1.292\). In
+other words, the PIGP satisfies the steady-state criterion early because it settles
+about \(1.3\%\) below the reference solution. In addition, the extrapolation of the
+PIGP final level is itself unreliable here. After \(t \approx 0.32\), the
+step-to-step changes in \(\max u^x\) are no longer a smooth decay but fluctuate in sign
+(\(1.2883\), \(1.2882\), \(1.2880\), \(1.2896\) at \(t = 0.32\)--\(0.35\)), so the ratio
+of successive changes, which the extrapolation assumes to be constant, varies by more
+than an order of magnitude.
+
+Table~\ref{tab:sinusoidal-diagnostics} summarizes the evolution of the error and the
+uncertainty at the snapshot times and at the two steady-state times.
+
+\begin{table}[H]
+\centering
+\caption{Diagnostics for the sinusoidal channel (\(\Delta t = 0.01\), 340 artificial
+points, resampled at every step). MAE: mean absolute error against the FEM at the same
+time step. Coverage: fraction of test points at which the error lies within
+\(2\sigma\).}%
+\label{tab:sinusoidal-diagnostics}
+\begin{tabular}{cccccc}
+\toprule
+\(t\) & \(\max u^x\) & MAE \(u_x\) & max \(2\sigma_{u_x}\) & coverage \(u_x\) & coverage \(u_y\) \\
+\midrule
+0.01 & 0.171 & \(2.7\times10^{-4}\) & \(3.4\times10^{-3}\) & 92.7\% & 92.9\% \\
+0.13 & 1.113 & \(1.9\times10^{-3}\) & \(6.1\times10^{-3}\) & 47.3\% & 81.4\% \\
+0.27 & 1.278 & \(3.4\times10^{-3}\) & \(7.6\times10^{-3}\) & 36.3\% & 85.6\% \\
+0.28 & 1.280 & \(3.6\times10^{-3}\) & \(7.7\times10^{-3}\) & 34.5\% & 80.6\% \\
+0.32 & 1.288 & \(4.3\times10^{-3}\) & \(9.1\times10^{-3}\) & 28.4\% & 79.1\% \\
+0.40 & 1.292 & \(5.9\times10^{-3}\) & \(7.5\times10^{-3}\) & 22.1\% & 56.7\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The relative \(L_2\) error in \(u_x\) is \(0.4\%\), \(0.6\%\) and \(1.0\%\) at
+\(t=0.13\), \(0.27\) and \(0.40\), respectively
+(Figure~\ref{fig:evolution_ux_sinusoidal}), and the mean absolute error grows almost
+monotonically over the whole march, from \(2.7\times10^{-4}\) at \(t=0.01\) to
+\(5.9\times10^{-3}\) at \(t=0.40\). This growth reflects the accumulation of error
+inherent in the time-marching scheme: at each step, the posterior mean of the previous
+step is used as artificial training data (Section~\ref{sec:inference-algorithm}), so
+any shortfall in the inferred velocity is carried forward and compounded. The result
+is a PIGP solution that increasingly lags behind the FEM. The error grows fastest
+after \(t \approx 0.28\): the PIGP velocity has by then nearly levelled off, increasing
+by less than \(1\%\) between \(t=0.28\) and \(t=0.40\), while the FEM is still
+approaching its higher final level, so the gap between the two continues to widen.
+The error at \(t=0.40\) therefore represents a persistent offset between the two
+steady states rather than a transient discrepancy, and its magnitude (\(1.0\%\))
+agrees with both the \(-1.31\%\) difference in final levels and the underprediction
+of the centreline velocity visible in the profiles
+(Figure~\ref{fig:profiles_sinusoidal}).
+
+The spatial distribution of the absolute error supports this interpretation. At
+\(t=0.13\) the error is below about \(10^{-3}\) over most of the channel, whereas by
+\(t=0.40\) it reaches about \(10^{-2}\) in the interior, most strongly along the
+centreline, where the velocity, and hence any shortfall in its final level, is
+largest. The error remains small along the walls at all times, where the no-slip
+condition is imposed exactly as training data. The error field is also not symmetric
+about the centreline, although the flow itself is; this reflects the random,
+non-symmetric placement of the artificial training points.
+
+Errors are larger for \(u_y\) than for \(u_x\), with a relative \(L_2\) error of
+\(2.4\%\), \(2.2\%\) and \(4.7\%\) at the same three times
+(Figure~\ref{fig:evolution_uy_sinusoidal}), again increasing most after steady state.
+This difference is expected on physical grounds rather than being a shortcoming of the
+PIGP inference itself: in the sinusoidal channel, \(u_x\) is the dominant velocity
+component along the channel axis, while \(u_y\) captures only the smaller cross-stream
+motion induced by the curvature of the walls. Since relative error normalizes the
+absolute error by the magnitude of the reference field, the same absolute error
+corresponds to a substantially larger relative error in \(u_y\), because
+\(|u_y| \ll |u_x|\) throughout most of the domain. In absolute terms, the \(u_y\) error
+is in fact smaller than the \(u_x\) error (a mean absolute error of
+\(2.0\times10^{-3}\) versus \(5.9\times10^{-3}\) at \(t=0.40\)). The same normalization
+explains the bright lines in the pointwise relative-error maps of \(u_y\): they
+coincide with the centreline and the cross-sections where \(u_y^{\mathrm{FEM}}\)
+changes sign, where the denominator vanishes, and not with regions of large absolute
+error. For \(u_x\), the relative error is correspondingly largest in a thin layer along
+the walls, where \(u_x^{\mathrm{FEM}} \to 0\).
+
+Figure~\ref{fig:uncertainty_sinusoidal} shows the evolution of the maximum and mean
+predictive uncertainty over the domain.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../resource/pics/sinusodial_noargs_un_ux.png}
+    \caption{\(2\sigma_{u_x}\).}%
+    \label{fig:uncertainty_ux_sinusoidal}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../resource/pics/sinusodial_noargs_un_uy.png}
+    \caption{\(2\sigma_{u_y}\).}%
+    \label{fig:uncertainty_uy_sinusoidal}
+\end{subfigure}
+\caption{Evolution of the maximum and mean predictive uncertainty for the sinusoidal
+channel (\(\Delta t=0.01\), 40 steps, 340 artificial points, resampled at every
+step).}%
+\label{fig:uncertainty_sinusoidal}
+\end{figure}
+
+Two features stand out. First, the uncertainty does not track the error. Both the
+maximum and the mean \(2\sigma_{u_x}\) grow during the early transient, the mean from
+\(1.0\times10^{-3}\) at \(t=0.01\) to about \(2\times10^{-3}\) at \(t \approx 0.1\), but
+level off at about \(t \approx 0.2\), with the mean remaining near
+\(2.3\times10^{-3}\) thereafter. The mean absolute error, in contrast, continues to
+grow over the whole march (Table~\ref{tab:sinusoidal-diagnostics}), reaching
+\(5.9\times10^{-3}\) at \(t=0.40\), about \(2.6\) times the mean \(2\sigma_{u_x}\).
+Consequently, the coverage falls from about \(93\%\) for both components at the first
+step, close to the nominal \(95\%\), to \(22\%\) for \(u_x\) and \(57\%\) for \(u_y\)
+at \(t=0.40\): the predictive band is well calibrated at early times but becomes
+increasingly overconfident. This is consistent with the nature of the error described
+above. The accumulated error is a systematic offset carried forward through the
+artificial data, whereas the posterior variance at each step only accounts for the
+uncertainty of the current inference given its training data, and so does not
+represent the bias inherited from earlier steps.
+
+Second, the uncertainty does not evolve smoothly. Fluctuations are present from
+\(t \approx 0.12\) onwards, and after \(t \approx 0.23\) the maximum
+\(2\sigma_{u_x}\) alternates between about \(7\times10^{-3}\) and
+\(1\times10^{-2}\) from one step to the next. These fluctuations have the same origin
+as those in \(\max u^x\) noted above: at every step, a new set of artificial locations
+is drawn, so the regions that are well or poorly constrained change from one step to
+the next. Their onset coincides with the approach to steady state, when the physical
+change per step becomes small and the step-to-step noise from resampling is no
+longer masked by it. This noise sets a floor below which changes in the solution
+cannot be resolved, and it is this noise floor that makes the extrapolated final
+level, and therefore \(t_\star\), unreliable. To remove this source of noise, the next
+section repeats the simulation with the artificial points held at fixed locations for
+the whole march.
 
 % New section
-\subsection{Effect of Time Step Size}
+\section{Effect of Fixed Points}%
+\label{sec:fixed-points-comparison}
+
+The simulation of Section~\ref{sec:results-sinusoidal} was repeated under identical
+conditions (\(\Delta t = 0.01\), 40 steps, 340 artificial points per step), but with
+the artificial training points held at fixed locations. In this \emph{fixed-points}
+variant, the 340 artificial locations are drawn once at \(t=0\) from the candidate
+pool and reused at every step, so that the posterior mean and covariance at step \(t\)
+are evaluated at exactly the same locations as at step \(t-1\)
+(Section~\ref{sec:inference-algorithm}, step~4). In the \emph{resampled} variant of
+Section~\ref{sec:results-sinusoidal}, a new set of locations is drawn at every step.
+Figures~\ref{fig:evolution_ux_sinusoidal_fp} and~\ref{fig:evolution_uy_sinusoidal_fp}
+show the resulting \(u_x\) and \(u_y\) fields.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{../resource/pics/evolution_ux_fixed_base.png}
+\caption{Evolution of \(u_x\) for pressure-driven flow through a sinusoidal channel
+with fixed artificial points (\(\Delta t=0.01\), 40 steps, 340 artificial points).
+Rows as in Figure~\ref{fig:evolution_ux_sinusoidal}.}%
+\label{fig:evolution_ux_sinusoidal_fp}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{../resource/pics/evolution_uy_fixed_base.png}
+\caption{Evolution of \(u_y\) for pressure-driven flow through a sinusoidal channel
+with fixed artificial points (\(\Delta t=0.01\), 40 steps, 340 artificial points).
+Rows as in Figure~\ref{fig:evolution_ux_sinusoidal}.}%
+\label{fig:evolution_uy_sinusoidal_fp}
+\end{figure}
+
+The relative \(L_2\) error is \(0.6\%\), \(0.9\%\) and \(1.0\%\) for \(u_x\), and
+\(4.4\%\), \(5.3\%\) and \(5.3\%\) for \(u_y\), at \(t=0.13\), \(0.27\) and \(0.40\),
+respectively. The most striking feature of the error maps is that the spatial pattern
+of the error is essentially frozen: the same structures, such as the closed contour in
+the lower-left of the wide section of the \(u_x\) maps, appear at all three times and
+only their magnitude changes. In the resampled case
+(Figure~\ref{fig:evolution_ux_sinusoidal}), the pattern changes from one snapshot to
+the next. This shows directly that, with fixed points, the error is governed by the
+placement of the artificial points: regions that are poorly constrained at the first
+step remain poorly constrained for the whole march.
+
+The velocity profiles in Figure~\ref{fig:profiles_sinusoidal_fp} lead to the same
+conclusion.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{../resource/pics/profiles_fixed_base.png}
+\caption{Velocity profiles for pressure-driven flow through a sinusoidal channel with
+fixed artificial points (\(\Delta t=0.01\), 40 steps, 340 artificial points) at
+\(t = 0.08, 0.16, 0.32, 0.40\). Panels, positions and line styles as in
+Figure~\ref{fig:profiles_sinusoidal}.}%
+\label{fig:profiles_sinusoidal_fp}
+\end{figure}
+
+The \(u_x\) profiles are almost indentical to earlier case, with the same slight underprediction near the centreline at late times. 
+The difference lies in the \(u_y\) profile at \(x=0.9375\). In the resampled variant
+(Figure~\ref{fig:profiles_sinusoidal}), the PIGP underpredicts the peak magnitude at
+\(t=0.16\) and \(t=0.40\) but matches it at \(t=0.32\), so the deviation varies
+irregularly from one time to the next. With fixed points, the peak magnitude is
+underpredicted at \(t=0.16\), \(0.32\) and \(0.40\) by a similar amount (about
+\(-0.076\) versus \(-0.079\) at late times), and the deviation extends over the same
+part of the profile (\(0.1 \leq y \leq 0.4\)) at each time. The error at this
+location is therefore a persistent, systematic offset rather than a fluctuating one,
+consistent with the frozen error pattern in Figure~\ref{fig:evolution_uy_sinusoidal_fp}.
+It also confirms that the irregular behaviour observed in the resampled case
+originates from the resampling of the artificial points. At \(x=1.5625\), the PIGP and
+FEM profiles agree closely at all times in both variants.
+
+Figure~\ref{fig:uncertainty_uy_sinusoidal_fp} shows the corresponding evolution of the
+predictive uncertainty.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../resource/pics/sinusodial_fixed_un_ux.png}
+    \caption{\(2\sigma_{u_x}\).}%
+    \label{fig:uncertainty_ux_sinusoidal_fp}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../resource/pics/sinusodial_fixed_un_uy.png}
+    \caption{\(2\sigma_{u_y}\).}%
+    \label{fig:uncertainty_uy_sinusoidal_fp}
+\end{subfigure}
+\caption{Evolution of the maximum and mean predictive uncertainty for pressure-driven
+flow through a sinusoidal channel with fixed artificial points (\(\Delta t=0.01\),
+40 steps, 340 artificial points).}%
+\label{fig:uncertainty_sinusoidal_fp}
+\end{figure}
+
+In contrast to the resampled case (Figure~\ref{fig:uncertainty_sinusoidal}), both the
+uncertainty and the coverage now evolve smoothly: \(2\sigma\) grows monotonically
+during the transient and levels off at \(t \approx 0.2\), and the coverage decreases
+smoothly to a plateau of about \(25\%\) for \(u_x\) and \(57\%\) for \(u_y\). The same
+holds for the solution itself. The step-to-step change \(\max|u^n_x - u^{n-1}_x|\)
+decays geometrically, with the ratio of successive changes nearly constant at
+\(q = 0.862\) (spread \(0.02\), compared with \(10.8\) in the resampled case), which is
+exactly the behaviour assumed by the extrapolation of the final level
+(Section~\ref{sec:reference}). The extrapolation is therefore reliable, and the PIGP
+reaches steady state at \(t_\star = 0.31\), compared with \(t_\star = 0.32\) for the
+FEM. This corresponds to a relative difference of \(3.1\%\), equal to a single time
+step and therefore within the time resolution of the method, compared with \(12.5\%\)
+for the resampled case. The final level itself is also closer to the reference, at
+\(-0.93\%\) below the steady FEM compared with \(-1.31\%\).
+
+Tables~\ref{tab:fp-vs-resampled-steps} and~\ref{tab:fp-vs-resampled-summary} compare
+the two variants.
+
+\begin{table}[H]
+\centering
+\caption{Error and coverage of the resampled (R) and fixed-points (F) variants for the
+sinusoidal channel (\(\Delta t = 0.01\), 340 artificial points). Each cell gives
+R\,/\,F. MAE: mean absolute error against the FEM at the same time step.}%
+\label{tab:fp-vs-resampled-steps}
+\begin{tabular}{cccccc}
+\toprule
+\(t\) & rel.\ \(L_2\) \(u_x\) (\%) & rel.\ \(L_2\) \(u_y\) (\%) &
+MAE \(u_x\) (\(10^{-3}\)) & MAE \(u_y\) (\(10^{-3}\)) & coverage \(u_x\) (\%) \\
+\midrule
+0.13 & 0.4 / 0.6 & 2.4 / 4.4 & 1.85 / 2.79 & 0.96 / 1.61 & 47.3 / 37.6 \\
+0.27 & 0.6 / 0.9 & 2.2 / 5.3 & 3.35 / 5.23 & 0.81 / 2.22 & 36.3 / 25.8 \\
+0.40 & 1.0 / 1.0 & 4.7 / 5.3 & 5.87 / 5.67 & 1.99 / 2.25 & 22.1 / 25.3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Steady-state quantities of the resampled and fixed-points variants.}%
+\label{tab:fp-vs-resampled-summary}
+\begin{tabular}{lccc}
+\toprule
+ & Resampled & Fixed points & FEM \\
+\midrule
+\(t_\star\) & 0.28 & 0.31 & 0.32 \\
+Final \(\max u^x\) & 1.292 & 1.297 & 1.309 \\
+Final level vs.\ steady FEM & \(-1.31\%\) & \(-0.93\%\) & -- \\
+Spread of decay ratio & 10.8 & 0.02 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The comparison reveals two regimes. During the transient, the fixed-points variant is
+less accurate: at \(t=0.27\), its mean absolute error is about \(1.6\) times larger for
+\(u_x\) and \(2.7\) times larger for \(u_y\). This is consistent with spatial
+coverage. When the locations are resampled, every region of the channel is eventually
+sampled, so the error introduced by gaps in the training set moves from step to step
+and does not accumulate at any one location. With fixed locations, the same regions
+remain unsampled throughout the march, and the error there accumulates, as the frozen
+error pattern shows.
+
+After steady state, however, the behaviour reverses. The error of the fixed-points
+variant saturates together with the flow: its mean absolute error in \(u_x\) changes
+by less than \(2\%\) between \(t=0.33\) and \(t=0.40\). The error of the resampled
+variant keeps growing, by about \(35\%\) between \(t=0.32\) and \(t=0.40\), because
+each new set of locations continues to perturb the solution even once the physical
+change per step has become small. By \(t=0.40\), the two variants have comparable
+errors, with the fixed-points variant slightly more accurate in \(u_x\) and slightly
+less accurate in \(u_y\), and a final level closer to the reference.
+
+The calibration is similar for both variants at \(t=0.40\), with a coverage of about
+\(22\)--\(25\%\) for \(u_x\) and \(57\%\) for \(u_y\). The overconfidence discussed in
+Section~\ref{sec:results-sinusoidal} is therefore not caused by resampling, but is a
+property of the time-marching inference itself, in which the bias inherited from
+earlier steps is not represented in the posterior variance.
+
+Since the steady-state time is a central quantity in this work, the fixed-points
+variant is used for the remainder of this chapter. Its accuracy is lower only during
+the transient, it is comparable at steady state with a more accurate final level, and
+its smooth evolution allows \(t_\star\) to be determined reliably.
+
+\pagebreak
+% TBH
+% New section
+\subsection{Effect of Time Step Size (Not done yet)}
 \label{sec:results-dt-comparison}
 
 To test the effect of the time discretization, the sinusoidal-channel case of
 Section~\ref{sec:results-sinusoidal} was repeated with a smaller time step,
-\(\Delta t = 0.01\), run for 25 loops (\(t \le 0.25\)), keeping 340 artificial
-training points per step.
+\(\Delta t = 0.005\) run for 80 loops, and a large time step \(\Delta t = 0.05\) run for 20 loops, keeping 340 artificial
+, 100 Nelder Mead optimization iterations, along with fixed point condition training points per step.
 
 \begin{figure}[H]
 \centering

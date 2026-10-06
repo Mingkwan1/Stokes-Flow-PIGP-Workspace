@@ -26,3 +26,7 @@ logs/
 logs_patch/
 .venv/
 *.out
+
+/work/jh250081a/n15005/Stokes-Flow-PIGP-Workspace/src/workspace/output_analysis/
+
+/work/jh250081a/n15005/Stokes-Flow-PIGP-Workspace/note.md

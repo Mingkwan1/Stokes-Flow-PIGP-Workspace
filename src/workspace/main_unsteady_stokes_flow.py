@@ -1,6 +1,3 @@
-from functools import wraps
-from typing import NamedTuple
-
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -15,29 +12,25 @@ import jaxopt
 import numpy as onp
 
 import argparse
-import hashlib
-import json
 import time
 from pathlib import Path
 
-import plotting
-import fem_stokes
-import evolution_plot
-import stokes_flow_pigp as sfp
+from utils import plotting, fem_stokes, evolution_plot, make_gif, cache
+from utils.write_report import write_report
 
 from functools import partial
 
 import matplotlib.pyplot as plt
 
 plt.rcParams.update({
-    "font.size":         14,   # was 26
-    "axes.labelsize":    16,   # was 28
-    "axes.titlesize":    15,   # was 26
-    "xtick.labelsize":   13,   # was 22
-    "ytick.labelsize":   13,   # was 22
-    "legend.fontsize":   13,   # was 22
-    "axes.linewidth":    1.2,  # was 1.8
-    "lines.linewidth":   1.8,  # was 2.6
+    "font.size":         14,   
+    "axes.labelsize":    16,   
+    "axes.titlesize":    15,   
+    "xtick.labelsize":   13,   
+    "ytick.labelsize":   13,   
+    "legend.fontsize":   13,   
+    "axes.linewidth":    1.2,  
+    "lines.linewidth":   1.8,  
     "xtick.major.width": 1.2, "ytick.major.width": 1.2,
     "xtick.major.size":  5,   "ytick.major.size":  5,
     "savefig.pad_inches": 0.02,
@@ -54,10 +47,6 @@ parser.add_argument("--profile-x-ux", type=float, nargs=2,
 parser.add_argument("--profile-x-uy", type=float, nargs=2,
                     default=[0.9375, 1.5625],
                     help="x locations for the u_y profiles (default 3L/8, 5L/8)")
-parser.add_argument("--steady-tol", type=float, default=1e-3,
-                    help="max|du_x|/max|u_x| below which flow is called steady")
-parser.add_argument("--steady-consecutive", type=int, default=2,
-                    help="consecutive steps that must satisfy --steady-tol")
 parser.add_argument("--profile-n-times", type=int, default=3,
                     help="how many of the --n-snap snapshots to draw in the "
                          "profile figure (first/middle/last)")
@@ -78,18 +67,20 @@ parser.add_argument("--propagate", choices=["on", "off"], default="off",
                     help="Raissi eq.(13) term Q K^-1 M K^-1 Q^T. Off: Sigma^{n-1} "
                          "is already in K, so 'on' counts it twice")
 
+#Optimization
+
 parser.add_argument("--fit", action="store_true", help="force re-optimization")
 parser.add_argument("--no-cache", action="store_true", help="do not read or write cache")
 parser.add_argument("--nm-iter", type=int, default=500)
 parser.add_argument("--tol", type=float, default=1e-2)
+
+parser.add_argument("--lbfgs-iter", type=int, default=0,
+                    help="L-BFGS polish iterations after Nelder-Mead (0 = NM only)")
+parser.add_argument("--lbfgs-tol", type=float, default=1e-6)
+
 parser.add_argument("--zero-up", action="store_true",
                     help="force k_up = k_pu = 0 (no u-p cross-covariance); "
                          "skips ~half the derivative-kernel work")
-parser.add_argument("--steady-ref-tol", type=float, default=1e-2,
-                    help="rel L2 to the steady FEM below which the flow is "
-                         "called steady (dt-invariant criterion)")
-parser.add_argument("--steady-window-t", type=float, default=0.05,
-                    help="time span the --steady-ref-tol criterion must hold")
 
 parser.add_argument("--geometry", choices=["sinusoidal", "plates"],
                     default="sinusoidal",
@@ -128,27 +119,34 @@ parser.add_argument("--evolution", action="store_true",
                              "of the march")
 parser.add_argument("--n-snap", type=int, default=5,
                         help="number of time snapshots in that figure")
+parser.add_argument("--t-stop", type=float, default=0.45,
+                    help="last time shown in the evolution/profile/uncertainty "
+                         "figures (the march itself may run longer)")
 parser.add_argument("--evolution-cmap", default="RdBu_r",
                         help="colormap, used for BOTH u_x and u_y")
 parser.add_argument("--evolution-share-rows", action="store_true",
                         help="put u_x and u_y on one common colour scale")
 
-parser.add_argument("--sref-nm-iter", type=int, default=500,
-                    help="Nelder-Mead iterations for the one-off steady PIGP fit")
-parser.add_argument("--sref-nm-tol", type=float, default=1e-2)
-parser.add_argument("--sref-refit", action="store_true",
-                    help="force re-fitting the cached steady PIGP reference")
+# Error statistics / GIF
+parser.add_argument("--rel-floor", type=float, default=1e-3,
+                    help="pointwise relative error is only evaluated where "
+                         "|FEM| >= rel_floor * max|FEM|")
+parser.add_argument("--gif", action="store_true",
+                    help="build a GIF of every step at the end")
+parser.add_argument("--gif-fps", type=int, default=10)
+parser.add_argument("--gif-width", type=int, default=900)
+parser.add_argument("--gif-prefix", default="combined")
 
 args = parser.parse_args()
 
 SPECIMEN = (
-    f"20260927_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
+    f"20261006_new_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
     f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
     f"fresh_points_{args.fresh_points}_"
     f"refit_everystep_{args.refit_every_step}"
     f"_eps_{args.eps_jitter}_zeroup_{args.zero_up}"
 )
-OUTDIR = Path(__file__).resolve().parent / "outputs"/ "concurrent_points_0927" / SPECIMEN
+OUTDIR = Path(__file__).resolve().parent / "outputs"/ "concurrent_points_20261006" / SPECIMEN
 (OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
 PLOT_PATH = CACHE_PATH = OUTDIR / "plots" 
 
@@ -178,6 +176,7 @@ def width(x):
 Q = 1.0 # Flow rate
 L = 2.5 # Characteristic Length
 avg_width = 1 # Average width
+
 a = 0.2 if args.geometry == "sinusoidal" else 0.0   # wall amplitude
 if args.geometry == "plates":
     print("[config] flat parallel plates: a=0, "f"constant half-width {avg_width/2:.3f}")
@@ -606,76 +605,41 @@ def run_nelder_mead(x0, y, R_G, N_G):
     res = NM_SOLVER.run(x0, y, R_G, N_G)
     return res.params, int(res.state.iter_num)
 
-def find_steady_state(history, rel_tol=1e-2, n_consecutive=3,
-                      plateau_window=6, plateau_ratio=1.4):
-    """Steady when EITHER
-         (a) rel change < rel_tol for n_consecutive steps, or
-         (b) rel change stops decaying: the median over the last
-             `plateau_window` steps is no better than `plateau_ratio`x
-             the median over the preceding window of the same length.
-    (b) exists because resampling the artificial points each step puts a
-    noise floor under the rel change, so (a) alone can never fire if
-    rel_tol sits below that floor."""
-    rel = []
-    for h in history:
-        scale = abs(h["ux_max"])
-        r = onp.nan if scale < 1e-14 else h["dmax"] / scale
-        h["rel_change"] = r
-        rel.append(r)
-    rel = onp.asarray(rel, dtype=float)
+LBFGS_SOLVER = jaxopt.ScipyMinimize(
+    fun=nlp_active, method="L-BFGS-B",
+    tol=args.lbfgs_tol, maxiter=args.lbfgs_iter)
 
-    hits = 0
-    for i, r in enumerate(rel):
-        if onp.isfinite(r) and r < rel_tol:
-            hits += 1
-            if hits >= n_consecutive:
-                return history[i]["t"], history[i]["step"], "tolerance"
-        else:
-            hits = 0
-
-    w = plateau_window
-    for i in range(2*w, len(rel)):
-        recent = onp.nanmedian(rel[i-w+1:i+1])
-        older  = onp.nanmedian(rel[i-2*w+1:i-w+1])
-        if onp.isfinite(recent) and onp.isfinite(older) and older < plateau_ratio*recent:
-            return history[i]["t"], history[i]["step"], "plateau"
-
-    return None, None, None
+def run_nm_then_lbfgs(x0, y, R_G, N_G):
+    ta, nit = run_nelder_mead(x0, y, R_G, N_G)
+    if args.lbfgs_iter <= 0:
+        return ta, nit
+    f_nm = float(nlp_active(ta, y, R_G, N_G))
+    res = LBFGS_SOLVER.run(ta, y, R_G, N_G)          # real gradients via JAX
+    tb = res.params
+    f_lb = float(nlp_active(tb, y, R_G, N_G))
+    ok = bool(jnp.all(jnp.isfinite(tb))) and onp.isfinite(f_lb) and f_lb < f_nm
+    print(f"[lbfgs] NM {f_nm:.6e} -> LBFGS {f_lb:.6e}  "
+          f"({int(res.state.iter_num)} iters)  {'accepted' if ok else 'REJECTED, keeping NM'}")
+    return (tb if ok else ta), nit + int(res.state.iter_num)
 
 PARAM_BLOCKS = ["u1u1", "u1u2", "u2u2", "u1p", "u2p", "pp"]
 
-def first_sustained(hist, key, tol, dt, window_t):
-    """First t at which hist[key] < tol AND stays below for >= window_t
-    time units. Time-based (not step-count) -> dt-invariant.
-    Entries missing `key` or non-finite are ignored.
-    Returns None if never reached or not enough data to confirm."""
-    pts = [(h["t"], h[key]) for h in hist
-           if key in h and onp.isfinite(h[key])]
-    if not pts:
-        return None
-    t = onp.array([p[0] for p in pts])
-    v = onp.array([p[1] for p in pts])
-    below = v < tol
-    eps = 0.5 * dt
-    for i in range(len(t)):
-        if not below[i]:
-            continue
-        t_end = t[i] + window_t
-        if t[-1] < t_end - eps:         
-            return None
-        in_win = (t >= t[i]) & (t <= t_end + eps)
-        if below[in_win].all():
-            return float(t[i])
-    return None
-
-def _arr_hash(*arrays):
-    """Content hash of point sets - catches a moved collocation grid that
-    a shape-only check would miss."""
-    h = hashlib.sha256()
-    for A in arrays:
-        h.update(onp.ascontiguousarray(onp.asarray(A), dtype=onp.float64).tobytes())
-    return h.hexdigest()[:16]
-
+def err_stats(P, F, good, rel_floor=args.rel_floor):
+    """min/max/mean of |P-F| and of |P-F|/|F| over `good` points.
+    Relative error skips points where |F| is tiny (u_y crosses zero, u_x -> 0
+    near walls), otherwise max/mean are dominated by division by ~0."""
+    absE = onp.abs(P - F)
+    ab = absE[good]
+    with onp.errstate(invalid="ignore"):
+        ok = good & (onp.abs(F) >= rel_floor * onp.nanmax(onp.abs(F[good])))
+    r = absE[ok] / onp.abs(F[ok])
+    nan = float("nan")
+    return dict(abs_min=float(ab.min()) if ab.size else nan,
+                abs_max=float(ab.max()) if ab.size else nan,
+                abs_mean=float(ab.mean()) if ab.size else nan,
+                rel_min=float(r.min()) if r.size else nan,
+                rel_max=float(r.max()) if r.size else nan,
+                rel_mean=float(r.mean()) if r.size else nan)
 
 def config_fingerprint(R_G0):
     """Hash everything that changes the optimum. A cache keyed only on a
@@ -696,37 +660,18 @@ def config_fingerprint(R_G0):
         "optimizer": "nelder-mead",
         "nm_iter": int(args.nm_iter), "tol": float(args.tol),
         "theta_init": [float(v) for v in theta_init],
-        "points_hash": _arr_hash(R_u_train, R_dSu1, R_dSu2, R_sp, R_G0, R_s),
+        "points_hash": cache.arr_hash(R_u_train, R_dSu1, R_dSu2, R_sp, R_G0, R_s),
         "n_candidate": int(args.n_candidate),
         "zero_u-p": bool(args.zero_up),
         "noise_G": "diag(Sigma_prev)",
         "propagate": bool(PROPAGATE),
         "active_idx": [int(i) for i in ACTIVE_IDX],
     }
-    h = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:16]
-    return h, cfg
-
-
-def load_cache(fingerprint):
-    if not CACHE_PATH.exists():
-        return None
-    d = onp.load(CACHE_PATH, allow_pickle=False)
-    if str(d["fingerprint"]) != fingerprint:
-        print("[cache] fingerprint mismatch (config changed) -> refitting")
-        return None
-    th = jnp.asarray(d["theta"])
-    if th.shape != theta_init.shape:
-        print(f"[cache] parameter count changed ({th.shape} vs {theta_init.shape}) -> refitting")
-        return None
-    return th
-
-
-def save_cache(fingerprint, theta, value):
-    onp.savez(CACHE_PATH,
-              theta=onp.asarray(theta),
-              fingerprint=onp.asarray(fingerprint),
-              value=onp.asarray(float(value)))
-    print(f"[cache] wrote {CACHE_PATH}")
+    if args.lbfgs_iter > 0:
+        cfg["optimizer"] = "nelder-mead+lbfgs"
+        cfg["lbfgs_iter"] = int(args.lbfgs_iter)
+        cfg["lbfgs_tol"] = float(args.lbfgs_tol)
+    return cache.fingerprint(cfg), cfg
 
 
 def report_theta(theta):
@@ -762,19 +707,6 @@ eta_line = jnp.linspace(-TEST_MARGIN, TEST_MARGIN, NY) * 0.5
 XX, EE = jnp.meshgrid(x_line, eta_line, indexing="ij")
 YY = EE * width(XX)
 R_test = jnp.stack([XX.ravel(), YY.ravel()], axis=-1)
-
-# ---- steady PIGP reference (cached; independent of dt / n_loop) ----------
-SREF = sfp.get_steady_reference(
-    R_test,
-    R_wall=R_u_train, R_dSu1=R_dSu1, R_dSu2=R_dSu2, R_sp=R_sp,
-    R_f=R_f1, R_s=R_s, body_force=FBODY,
-    eta=float(η), L=float(L), a=float(a), avg_width=float(avg_width),
-    theta_init=theta_init, eps_jitter=1e-3, zero_up=args.zero_up,
-    nm_iter=args.sref_nm_iter, nm_tol=args.sref_nm_tol,
-    cache_dir=Path(__file__).resolve().parent / "cache_outputs" / "steady_pigp",
-    refit=args.sref_refit)
-U1_SREF = SREF["u1"].reshape(NX, NY)
-U2_SREF = SREF["u2"].reshape(NX, NY)
 
 row_u1 = [k_uu[0][0], k_uu[0][1], Sp(k_uu[0][0]), Sp(k_uu[0][1]),
           Sp(k_up[0]),  k_uG(0, 0), k_uG(0, 1), k_us(0)]
@@ -897,20 +829,21 @@ N_G = artificial_noise(Sigma_prev)
 obj = lambda ta, y=y, R_G=R_G, N_G=N_G: nlp_active(ta, y, R_G, N_G) 
 final_params = None
 if not args.fit and not args.no_cache:
-    final_params = load_cache(fp)
+    final_params = cache.load_theta(CACHE_PATH, fp, theta_init.shape)
     if final_params is not None:
+        final_params = jnp.asarray(final_params)
         print(f"[cache] loaded theta (skipping optimization)")
  
 if final_params is None:
     ta0 = theta_init[ACTIVE_IDX]
     print(f"Initial value: {float(obj(ta0)):.6e}", flush=True)
     t0 = time.time()
-    ta, nit = run_nelder_mead(ta0, y, R_G, N_G)
+    ta, nit = run_nm_then_lbfgs(ta0, y, R_G, N_G)
     final_params = expand_theta(ta)
     print(f"Final value:   {float(obj(ta)):.6e}  "
           f"[{time.time()-t0:.0f}s, {nit} iters]")
     if not args.no_cache:
-        save_cache(fp, final_params, obj(ta))
+        cache.save_theta(CACHE_PATH, fp, final_params, obj(ta))
 
  
 print("\n[theta] FROZEN for the whole march" if not args.refit_every_step
@@ -921,10 +854,12 @@ report_theta(final_params)
 history = []          # per-step diagnostics
 Lc_cached = None
 
-# N evenly spaced snapshots for the evolution plot, N = args.n_snap
-SNAP_STEPS = sorted({max(1, int(round(k * args.n_loop / args.n_snap)))
+# N evenly spaced snapshots for the evolution/profile plots, ending at --t-stop
+# (the march itself keeps running to --n-loop)
+N_STOP = min(args.n_loop, int(round(args.t_stop / Δt)))
+SNAP_STEPS = sorted({max(1, int(round(k * N_STOP / args.n_snap)))
                      for k in range(1, args.n_snap + 1)})
-snapshots = []        # (t, U1, U2) captured at those steps
+snapshots = []        # (step, t, U1, U2, S1, S2) captured at those steps
 print(f"[config] evolution snapshots at steps {SNAP_STEPS} "
       f"(t = {', '.join(f'{s*Δt:.3f}' for s in SNAP_STEPS)})")
 
@@ -950,7 +885,6 @@ if args.fem:
 # fem_steps = sorted(set(SNAP_STEPS) | set(range(5, args.n_loop + 1, 5)))
 
 fem_march = None
-fem_t_steady = None 
 if args.fem:
     fem_steps_all = list(range(1, args.n_loop + 1))
     fem_march = fem_stokes.get_unsteady(
@@ -960,26 +894,7 @@ if args.fem:
         eta=float(η), rho=float(ρ), body_force_x=float(FBODY[0]),
         dt=float(Δt), nx=args.fem_nx, ny=args.fem_ny)
 
-    fem_hist = []
-    for s in sorted(fem_march):
-        Fn1 = onp.asarray(fem_march[s][0]).reshape(NX, NY)
-        Fn2 = onp.asarray(fem_march[s][1]).reshape(NX, NY)
-        fem_hist.append({"t": s * Δt,
-                         "rel": sfp.rel_l2_velocity(Fn1, Fn2, F1_test, F2_test),
-                         "rel_uxmax": abs(float(onp.nanmax(Fn1)) - float(onp.nanmax(F1_test)))
-                                      / float(onp.nanmax(F1_test))})
-    fem_t_steady = first_sustained(fem_hist, "rel", args.steady_ref_tol,
-                                   Δt, args.steady_window_t)
-    print("\n" + "=" * 66)
-    print("FEM STEADY STATE (rel L2 to steady FEM, dt-invariant)")
-    print("=" * 66)
-    k = max(1, int(round(0.05 / Δt)))                 # print every 0.05 time
-    for h in fem_hist[k - 1::k]:
-        print(f"  t = {h['t']:.4f}   rel L2 = {h['rel']:.4e}")
-    print("--> FEM steady at " + ("not reached" if fem_t_steady is None
-                                  else f"t = {fem_t_steady:.4f}"))
-    print("=" * 66)
-    
+
 for n in range(1, args.n_loop + 1):
     
     t_wall = time.time()
@@ -1042,7 +957,6 @@ for n in range(1, args.n_loop + 1):
                std_max=float(S1.max()))
     diag.update(_uncertainty_stats(S1, "ux"))
     diag.update(_uncertainty_stats(S2, "uy"))
-    diag["rel_sref"]    = sfp.rel_l2_velocity(U1, U2, U1_SREF, U2_SREF)
     # ---- coverage: fraction of points where the TRUE (FEM) error at this
     # same step falls within the model's own 95% band -- separately for
     # u_x and u_y, since they can be calibrated very differently (u_y is
@@ -1060,6 +974,8 @@ for n in range(1, args.n_loop + 1):
         diag["coverage_95_ux"]     = cov_x
         diag["mean_abs_err_ux"]    = float(abs_err_x[good_x].mean())
         cov_ux_str = f"{100*cov_x:7.1f}%"
+        for k_, v_ in err_stats(U1, F1n, good_x).items():
+            diag[f"{k_}_ux"] = v_
 
         good_y = fem_good & onp.isfinite(U2) & onp.isfinite(F2n)
         abs_err_y = onp.abs(U2 - F2n)
@@ -1067,6 +983,8 @@ for n in range(1, args.n_loop + 1):
         diag["coverage_95_uy"]     = cov_y
         diag["mean_abs_err_uy"]    = float(abs_err_y[good_y].mean())
         cov_uy_str = f"{100*cov_y:7.1f}%"
+        for k_, v_ in err_stats(U2, F2n, good_y).items():
+            diag[f"{k_}_uy"] = v_
 
     print(f"{n:>5}{t_now:>8.3f}{U1.max():>11.5f}{U1[:, NY//2].mean():>11.5f}"
           f"{diag['twosig_max_ux']:>10.2e}{cov_ux_str:>9}"
@@ -1075,7 +993,7 @@ for n in range(1, args.n_loop + 1):
 
     history.append(diag)
 
-    # capture snapshot for the evolution figure -- THIS is the line that was missing
+    # capture snapshot for the evolution figure
     if F1_test is not None:
         good = fem_good & onp.isfinite(U1)
         rel = float(onp.linalg.norm(U1[good] - F1_test[good])
@@ -1102,7 +1020,7 @@ for n in range(1, args.n_loop + 1):
     onp.savez(OUTDIR / f"state_t{n:04d}.npz",
               t=t_now, theta=onp.asarray(final_params),
               u1=U1, u2=U2, p=onp.asarray(p_mean).reshape(NX, NY),
-              u1_std=onp.asarray(u1_std).reshape(NX, NY),   # fixed typo: was u1_stdtd
+              u1_std=onp.asarray(u1_std).reshape(NX, NY),
               R_G=onp.asarray(R_G),
               u1_artificial=onp.asarray(u1_next),
               u2_artificial=onp.asarray(u2_next),
@@ -1172,6 +1090,28 @@ def _plot_calibration(comp_name, symbol):
 
 _plot_calibration("ux", r"$u_x$")
 _plot_calibration("uy", r"$u_y$")
+
+# ==================== (b) MEAN ABS / REL ERROR vs TIME ====================
+def _plot_mean_error(kind, ylabel, fname):
+    hh = [h for h in history if f"{kind}_mean_ux" in h]
+    if not hh:
+        print(f"[err] no FEM data -> {kind} error plot skipped (run with --fem)")
+        return
+    t = onp.array([h["t"] for h in hh])
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.semilogy(t, [h[f"{kind}_mean_ux"] for h in hh], "o-", ms=3, label=r"$u_x$")
+    ax.semilogy(t, [h[f"{kind}_mean_uy"] for h in hh], "s-", ms=3, label=r"$u_y$")
+    ax.axvline(args.t_stop, color="gray", ls=":", lw=1.2,
+               label=rf"$t_{{stop}}={args.t_stop:g}$")
+    ax.set_xlabel("$t$"); ax.set_ylabel(ylabel)
+    ax.legend(); ax.grid(alpha=0.3)
+    fig.tight_layout()
+    out = OUTDIR / f"{fname}_{fp}.png"
+    fig.savefig(out, dpi=150); plt.close(fig)
+    print(f"[plot] {out}")
+
+_plot_mean_error("abs", r"mean $|\mathrm{PIGP}-\mathrm{FEM}|$", "mean_abs_error")
+_plot_mean_error("rel", r"mean $|\mathrm{PIGP}-\mathrm{FEM}|/|\mathrm{FEM}|$", "mean_rel_error")
 # ===============================================================================
 
 onp.savez(OUTDIR / f"march_history_{fp}.npz",
@@ -1202,266 +1142,13 @@ if args.profiles:
         fem=fem_march, tag=fp,
         n_times=args.profile_n_times)  
 
-t_steady, n_steady, reason = find_steady_state(history,
-                                       rel_tol=args.steady_tol,
-                                       n_consecutive=args.steady_consecutive)
+if args.gif:
+    make_gif.build_gif(OUTDIR / "plots", OUTDIR / f"evolution_{args.gif_prefix}_{fp}.gif",
+                       prefix=args.gif_prefix, fps=args.gif_fps,
+                       width=args.gif_width, fp=fp)
 
-print("\n" + "=" * 66)
-print("STEADY-STATE ASSESSMENT")
-print("=" * 66)
-print(f"  criterion   : max|u_x^n - u_x^(n-1)| / max|u_x^n| < {args.steady_tol:g}")
-print(f"                sustained for {args.steady_consecutive} consecutive steps")
-print(f"  dt = {Δt:g}   steps = {args.n_loop}   t_final = {args.n_loop*Δt:.4f}")
-print("-" * 66)
-print(f"  {'step':>5}{'t':>9}{'ux_max':>12}{'rel change':>14}")
-for h in history:
-    rc = h.get("rel_change", onp.nan)
-    mark = ""
-    if n_steady is not None and h["step"] == n_steady:
-        mark = "   <-- steady"
-    print(f"  {h['step']:>5}{h['t']:>9.4f}{h['ux_max']:>12.6f}"
-          f"{rc:>14.3e}{mark}")
-print("-" * 66)
-if t_steady is not None:
-    hs = history[n_steady - 1]
-    label = ("relative change fell below tolerance" if reason == "tolerance"
-             else "relative change stopped decaying (hit the noise floor)")
-    print(f"  --> STEADY STATE REACHED at t = {t_steady:.4f}  (step {n_steady})")
-    print(f"      criterion fired    : {label}")
-    print(f"      u_x max            : {hs['ux_max']:.6f}")
-    print(f"      u_x centreline mean: {hs['ux_ctr']:.6f}")
-    print(f"      |u_x| at wall row  : {abs(hs['ux_wall']):.3e}")
-else:
-    hf = history[-1]
-    rel_f = hf["dmax"] / max(abs(hf["ux_max"]), 1e-14)
-    print(f"  --> NOT STEADY within t <= {hf['t']:.4f}")
-    print(f"      final relative change: {rel_f:.3e}  (tol {args.steady_tol:g})")
-    print(f"      increase --n-loop, or relax --steady-tol")
-print("=" * 66)
-
-onp.savez(OUTDIR / f"steady_state_{fp}.npz",
-          t_steady=onp.asarray(onp.nan if t_steady is None else t_steady),
-          step_steady=onp.asarray(-1 if n_steady is None else n_steady),
-          rel_tol=onp.asarray(args.steady_tol),
-          reason=onp.asarray("none" if reason is None else reason),
-          t=onp.array([h["t"] for h in history]),
-          rel_change=onp.array([h.get("rel_change", onp.nan) for h in history]))
 # ==================================================================== report
-def write_report(history, fp, args, t_steady, n_steady, reason, outdir,
-                 steady_ref=None):
-    """Single human-readable .txt + machine-readable .csv summarizing the
-    whole march: per-step errors/uncertainty, calibration, steady-state."""
-    import csv
-
-    txt_path = outdir / f"report_{fp}.txt"
-    csv_path = outdir / f"report_{fp}.csv"
-
-    # --- CSV: one row per step, union of all keys that ever appeared -------
-    all_keys = []
-    seen = set()
-    for h in history:
-        for k in h:
-            if k not in seen:
-                seen.add(k); all_keys.append(k)
-    with open(csv_path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=all_keys, restval="", extrasaction="ignore")
-        w.writeheader()
-        for h in history:
-            w.writerow(h)
-    print(f"[report] wrote {csv_path}")
-
-    # --- TXT: readable report ------------------------------------------------
-    lines = []
-    lines.append("=" * 78)
-    lines.append("PIGP UNSTEADY STOKES FLOW -- RUN REPORT")
-    lines.append("=" * 78)
-    lines.append(f"fingerprint       : {fp}")
-    lines.append(f"geometry          : {args.geometry}")
-    lines.append(f"dt / n_loop       : {args.dt} / {args.n_loop}  (t_final = {args.dt*args.n_loop:.4f})")
-    lines.append(f"n_artificial      : {args.n_artificial}  fresh_points={args.fresh_points}  fixed_points={args.fixed_points}")
-    lines.append(f"nm_iter / tol     : {args.nm_iter} / {args.tol}")
-    lines.append(f"refit_every_step  : {args.refit_every_step}")
-    lines.append(f"zero_up / active   : {args.zero_up} / {ACTIVE_IDX.size} of {theta_init.shape[0]}")
-    lines.append(f"K (eq.12)          : G noise = diag(Sigma_prev), boundary noise 0, "
-                 f"eps_jitter = {EPS_JITTER:g}, propagation term = {PROPAGATE}")
-    lines.append(f"fem comparison    : {args.fem}")
-    lines.append("")
-
-    lines.append("-" * 78)
-    lines.append("PER-STEP DIAGNOSTICS")
-    lines.append("-" * 78)
-    has_fem = any("coverage_95_ux" in h for h in history)
-    if has_fem:
-        header = (f"{'step':>5}{'t':>9}{'ux_max':>11}{'|du|':>11}{'rel_chg':>11}"
-                   f"{'2sig_ux':>11}{'cov_ux':>9}{'mae_ux':>11}"
-                   f"{'2sig_uy':>11}{'cov_uy':>9}{'mae_uy':>11}{'fem_L2':>9}")
-    else:
-        header = (f"{'step':>5}{'t':>9}{'ux_max':>11}{'|du|':>11}{'rel_chg':>11}"
-                   f"{'2sig_ux':>11}{'2sig_uy':>11}")
-    lines.append(header)
-    for h in history:
-        rc = h.get("rel_change", float("nan"))
-        row = f"{h['step']:>5}{h['t']:>9.4f}{h['ux_max']:>11.5f}{h['dmax']:>11.2e}{rc:>11.2e}"
-        row += f"{h['twosig_max_ux']:>11.2e}"
-        if has_fem:
-            cov_x = h.get("coverage_95_ux")
-            mae_x = h.get("mean_abs_err_ux")
-            row += f"{(100*cov_x if cov_x is not None else float('nan')):>8.1f}%"
-            row += f"{(mae_x if mae_x is not None else float('nan')):>11.2e}"
-        row += f"{h['twosig_max_uy']:>11.2e}"
-        if has_fem:
-            cov_y = h.get("coverage_95_uy")
-            mae_y = h.get("mean_abs_err_uy")
-            row += f"{(100*cov_y if cov_y is not None else float('nan')):>8.1f}%"
-            row += f"{(mae_y if mae_y is not None else float('nan')):>11.2e}"
-            fl2 = h.get("fem_rel_l2")
-            row += f"{(fl2 if fl2 is not None else float('nan')):>9.4f}" if fl2 is not None else f"{'':>9}"
-        lines.append(row)
-    lines.append("")
-
-    if has_fem:
-        lines.append("-" * 78)
-        lines.append("CALIBRATION SUMMARY (final step)")
-        lines.append("-" * 78)
-        h_last_fem = [h for h in history if "coverage_95_ux" in h]
-        if h_last_fem:
-            hl = h_last_fem[-1]
-            lines.append(f"  t = {hl['t']:.4f}")
-            lines.append(f"  u_x : coverage_95 = {100*hl['coverage_95_ux']:.1f}%   "
-                          f"mean|err| = {hl['mean_abs_err_ux']:.3e}   "
-                          f"max 2sigma = {hl['twosig_max_ux']:.3e}")
-            lines.append(f"  u_y : coverage_95 = {100*hl['coverage_95_uy']:.1f}%   "
-                          f"mean|err| = {hl['mean_abs_err_uy']:.3e}   "
-                          f"max 2sigma = {hl['twosig_max_uy']:.3e}")
-        lines.append("")
-
-    lines.append("-" * 78)
-    lines.append("STEP-CHANGE DIAGNOSTIC (NOT dt-invariant -- do not compare across dt)")
-    lines.append("-" * 78)
-    lines.append(f"  criterion : max|du_x|/max|u_x| < {args.steady_tol:g}, "
-                  f"{args.steady_consecutive} consecutive steps")
-    if t_steady is not None:
-        hs = history[n_steady - 1]
-        label = ("tolerance" if reason == "tolerance" else "plateau (noise floor)")
-        lines.append(f"  RESULT    : reached at t = {t_steady:.4f} (step {n_steady})  [{label}]")
-        lines.append(f"  ux_max    : {hs['ux_max']:.6f}")
-        lines.append(f"  ux_ctr    : {hs['ux_ctr']:.6f}")
-        lines.append(f"  |ux_wall| : {abs(hs['ux_wall']):.3e}")
-    else:
-        hf = history[-1]
-        rel_f = hf["dmax"] / max(abs(hf["ux_max"]), 1e-14)
-        lines.append(f"  RESULT    : NOT steady within t <= {hf['t']:.4f}")
-        lines.append(f"  final rel change: {rel_f:.3e}  (tol {args.steady_tol:g})")
-    if steady_ref is not None:
-        fmt = lambda v: "not reached" if v is None else f"t = {v:.4f}"
-        lines.append("")
-        lines.append("-" * 78)
-        lines.append("STEADY TIME t*  (each method vs its OWN steady solution, same dt)")
-        lines.append("-" * 78)
-        lines.append("  metric    : ||(u_x,u_y)^n - (u_x,u_y)_steady||_2 / ||(u_x,u_y)_steady||_2")
-        lines.append(f"  criterion : < {args.steady_ref_tol:g}, held for {args.steady_window_t:g} time units")
-        lines.append(f"  dt        : {Δt:g} (PIGP and FEM)")
-        lines.append(f"  PIGP (ref = steady PIGP) : {fmt(steady_ref['pigp'])}")
-        lines.append(f"  FEM  (ref = steady FEM)  : {fmt(steady_ref['fem'])}")
-        if steady_ref["pigp"] is not None and steady_ref["fem"] is not None:
-            err = steady_ref["pigp"] - steady_ref["fem"]
-            lines.append(f"  error t*                 : {err:+.4f}  "
-                         f"({100*err/steady_ref['fem']:+.1f}% of FEM, resolution ±{Δt:g})")
-        if steady_ref["ref_gap"] is not None:
-            lines.append(f"  steady PIGP vs steady FEM: rel L2 = {steady_ref['ref_gap']:.4e}")
-        if "pigp_ux" in steady_ref:
-            lines.append("")
-            lines.append("-" * 78)
-            lines.append(f"STEADY TIME t*  (u_x max within {100*args.steady_ref_tol:g}% of its "
-                         f"OWN final level, held {args.steady_window_t:g})")
-            lines.append("-" * 78)
-            lines.append(f"  PIGP final : u_x max -> {steady_ref['ux_inf_pigp']:.5f}  "
-                         f"(extrapolated, q={steady_ref['q']:.3f}, "
-                         f"ratio spread={steady_ref['q_spread']:.3f})")
-            lines.append(f"  PIGP t*    : {fmt(steady_ref['pigp_ux'])}")
-            if steady_ref["ux_inf_fem"] is not None:
-                lines.append(f"  FEM final  : u_x max  = {steady_ref['ux_inf_fem']:.5f}  (steady FEM)")
-            lines.append(f"  FEM t*     : {fmt(steady_ref['fem_ux'])}")
-            if steady_ref["pigp_ux"] is not None and steady_ref["fem_ux"] is not None:
-                d = steady_ref["pigp_ux"] - steady_ref["fem_ux"]
-                lines.append(f"  difference : {d:+.4f}  ({100*d/steady_ref['fem_ux']:+.1f}% "
-                             f"of FEM t*, resolution ±{Δt:g})")
-            if steady_ref["offset"] is not None:
-                lines.append(f"  accuracy   : PIGP final level vs steady FEM = "
-                             f"{100*steady_ref['offset']:+.2f}%")
-    lines.append("=" * 78)
-
-    with open(txt_path, "w") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"[report] wrote {txt_path}")
-
-steady_ref = None
-
-t_pigp = first_sustained(history, "rel_sref", args.steady_ref_tol,
-                         Δt, args.steady_window_t)
-steady_ref = {"pigp": t_pigp, "fem": fem_t_steady, "ref_gap": None}
-
-def extrapolate_final(v, m=8):
-    """Limit of a geometrically decaying sequence:
-    v_inf = v[-1] + d[-1]*q/(1-q), q = median ratio of the last m increments.
-    Returns (v_inf, q, spread of the ratios). Needs clean decay (--fixed-points)."""
-    v = onp.asarray(v, float)
-    d = onp.diff(v)
-    r = d[-m:] / d[-m-1:-1]
-    q = float(onp.median(r))
-    spread = float(onp.ptp(r))
-    if not (0.0 < q < 1.0):
-        return float(v[-1]), q, spread
-    return float(v[-1] + d[-1]*q/(1.0 - q)), q, spread
-
-# ---- t* : each method vs its OWN final level (u_x max) -----------------------
-UX_INF_PIGP, q_pigp, q_spread = extrapolate_final([h["ux_max"] for h in history])
-for h in history:
-    h["uxmax_rel_own"] = abs(h["ux_max"] - UX_INF_PIGP) / UX_INF_PIGP
-t_pigp_ux = first_sustained(history, "uxmax_rel_own", args.steady_ref_tol,
-                            Δt, args.steady_window_t)
-UX_INF_FEM = float(onp.nanmax(F1_test)) if args.fem else None   # FEM march -> steady FEM
-t_fem_ux  = (first_sustained(fem_hist, "rel_uxmax", args.steady_ref_tol,
-                             Δt, args.steady_window_t) if args.fem else None)
-offset = ((UX_INF_PIGP - UX_INF_FEM) / UX_INF_FEM) if args.fem else None
-steady_ref.update({"pigp_ux": t_pigp_ux, "fem_ux": t_fem_ux,
-                   "ux_inf_pigp": UX_INF_PIGP, "ux_inf_fem": UX_INF_FEM,
-                   "q": q_pigp, "q_spread": q_spread, "offset": offset})
-if not (0.0 < q_pigp < 1.0) or q_spread > 0.2 or not args.fixed_points:
-    print(f"[warn] final-level extrapolation may be unreliable "
-          f"(q={q_pigp:.3f}, ratio spread={q_spread:.3f}, "
-          f"fixed_points={args.fixed_points})")
-if F1_test is not None:
-    steady_ref["ref_gap"] = sfp.rel_l2_velocity(U1_SREF, U2_SREF, F1_test, F2_test)
-
-fmt = lambda v: "not reached" if v is None else f"t = {v:.4f}"
-print("\n" + "=" * 66)
-print("STEADY TIME t*  (each method vs its own steady solution)")
-print("=" * 66)
-print(f"  dt (PIGP = FEM) : {Δt:g}")
-print(f"  PIGP            : {fmt(t_pigp)}")
-if args.fem:
-    print(f"  FEM             : {fmt(fem_t_steady)}")
-    if t_pigp is not None and fem_t_steady is not None:
-        err = t_pigp - fem_t_steady
-        print(f"  error t*        : {err:+.4f}  ({100*err/fem_t_steady:+.1f}% of FEM)")
-    print(f"  steady PIGP vs steady FEM (rel L2): {steady_ref['ref_gap']:.4e}")
-print("=" * 66)
-print("\n" + "=" * 66)
-print(f"STEADY TIME t*  (u_x max within {100*args.steady_ref_tol:g}% of its OWN final level)")
-print("=" * 66)
-print(f"  PIGP final : u_x max -> {UX_INF_PIGP:.5f}  (extrapolated, q={q_pigp:.3f})")
-print(f"  PIGP t*    : {fmt(t_pigp_ux)}")
-if args.fem:
-    print(f"  FEM final  : u_x max  = {UX_INF_FEM:.5f}  (steady FEM)")
-    print(f"  FEM t*     : {fmt(t_fem_ux)}")
-    if t_pigp_ux is not None and t_fem_ux is not None:
-        d = t_pigp_ux - t_fem_ux
-        print(f"  difference : {d:+.4f}  ({100*d/t_fem_ux:+.1f}% of FEM t*, "
-              f"resolution ±{Δt:g})")
-    print(f"  accuracy   : PIGP final level vs steady FEM = {100*offset:+.2f}%")
-print("=" * 66)
-
-write_report(history, fp, args, t_steady, n_steady, reason, OUTDIR,
-             steady_ref=steady_ref)
+write_report(history, fp, args, OUTDIR,
+             n_active=ACTIVE_IDX.size, n_theta=theta_init.shape[0],
+             eps_jitter=EPS_JITTER, propagate=PROPAGATE)
 plt.show()

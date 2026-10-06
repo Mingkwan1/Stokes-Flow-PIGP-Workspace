@@ -1,8 +1,5 @@
 """Reference Stokes solution in a sinusoidal channel, via scikit-fem.
 
-Self-contained: imports nothing from the PIGP script. Pure Python (no MPI,
-no PETSc), so it installs and runs natively on Windows with `uv add scikit-fem`.
-
 Taylor-Hood P2/P1, no-slip on the sinusoidal walls, exactly x-periodic via a
 DOF-identification matrix, driven by a uniform body force. This matches the
 PIGP setup: same geometry, same BCs, same forcing, and pressure determined

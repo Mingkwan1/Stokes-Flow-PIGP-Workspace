@@ -22,7 +22,7 @@ p.add_argument("--N", type=int, default=400, help="number of Fourier modes")
 p.add_argument("--n-snap", type=int, default=10,
                help="number of evenly-spaced snapshots to show (0 = use every "
                     "point in the history file)")
-p.add_argument("--out", default="pigp_vs_analytical_con.png")
+p.add_argument("--out", default="src/workspace/output_analysis/pigp_vs_analytical_con.png")
 args = p.parse_args()
 
 # ---- physical parameters, derived exactly as in the PIGP script -----------
