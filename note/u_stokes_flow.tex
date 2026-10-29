@@ -742,14 +742,16 @@ This extrapolation assumes a smooth decay and is only reliable when the artifici
 \chapter{Results}%
 \label{ch:results}
 
-This chapter presents the inferred velocity field for pressure-driven, unsteady Stokes
-flow in two two-dimensional geometries, using the time-marching physics-informed
+This chapter presents the results of the inferred velocity field for pressure-driven, unsteady Stokes
+flow in two two-dimensional channels, using a time-marching physics-informed
 Gaussian process (PIGP) developed in Chapter~\ref{ch:methodology}.
 Section~\ref{sec:results-plates} considers flow between two parallel plates, for which
 a closed-form analytical solution is used for validation.
-Section~\ref{sec:results-sinusoidal} considers flow through a sinusoidal channel,
-following the geometry of \textcite{Molina2023}, for which a finite-element (FEM)
-solution is instead used as the reference.
+Section~\ref{sec:results-sinusoidal} to \ref{sec:fixed-points-comparison} considers flow through a sinusoidal channel,
+, for which a finite-element (FEM) inferred solution is instead used as the reference. 
+
+Mean absolute error (\emph{MAE}) and Mean relative error (\emph{MRE}) or mean \(L_2\) error are used to analyze the behavior of the flow.
+Since this problem is a transient problem, 
 
 
 \section{Pressure-driven flow between parallel plates}%

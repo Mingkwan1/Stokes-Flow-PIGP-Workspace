@@ -1,7 +1,7 @@
 """
 Usage:
-    uv run python src/workspace/compare_pigp_analytical.py 
-        --history src/workspace/outputs/concurrent_points_0927/20260927_usf_0.01_100_340artificial_plates_nm_100_tol_0.01_fresh_points_False_refit_everystep_True_eps_0.001_zeroup_True/march_history_5fde1c3778640546.npz
+    uv run python src/workspace/utils/compare_pigp_analytical.py 
+        --history src/workspace/outputs/concurrent_points_20261006/20261006_new_usf_0.008_100_340artificial_plates_nm_100_tol_0.001_fresh_points_False_refit_everystep_True_eps_0.001_zeroup_True/march_history_4c3f97ebec76f819.npz
         --eta 1.0 --rho 1.0 --avg-width 1.0 --dP -30 --L 2.5
 """
 
@@ -22,7 +22,7 @@ p.add_argument("--N", type=int, default=400, help="number of Fourier modes")
 p.add_argument("--n-snap", type=int, default=10,
                help="number of evenly-spaced snapshots to show (0 = use every "
                     "point in the history file)")
-p.add_argument("--out", default="src/workspace/output_analysis/pigp_vs_analytical_con.png")
+p.add_argument("--out", default="src/workspace/output_analysis/pigp_vs_analytical_plates_1008.png")
 args = p.parse_args()
 
 # ---- physical parameters, derived exactly as in the PIGP script -----------

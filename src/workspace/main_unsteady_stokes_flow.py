@@ -119,7 +119,7 @@ parser.add_argument("--evolution", action="store_true",
                              "of the march")
 parser.add_argument("--n-snap", type=int, default=5,
                         help="number of time snapshots in that figure")
-parser.add_argument("--t-stop", type=float, default=0.45,
+parser.add_argument("--t-stop", type=float, default=0.32,
                     help="last time shown in the evolution/profile/uncertainty "
                          "figures (the march itself may run longer)")
 parser.add_argument("--evolution-cmap", default="RdBu_r",
@@ -136,17 +136,18 @@ parser.add_argument("--gif", action="store_true",
 parser.add_argument("--gif-fps", type=int, default=10)
 parser.add_argument("--gif-width", type=int, default=900)
 parser.add_argument("--gif-prefix", default="combined")
+parser.add_argument("--gif-dpi", type=int, default=100)
 
 args = parser.parse_args()
 
 SPECIMEN = (
-    f"20261006_new_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
+    f"20261008_new_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
     f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
     f"fresh_points_{args.fresh_points}_"
     f"refit_everystep_{args.refit_every_step}"
     f"_eps_{args.eps_jitter}_zeroup_{args.zero_up}"
 )
-OUTDIR = Path(__file__).resolve().parent / "outputs"/ "concurrent_points_20261006" / SPECIMEN
+OUTDIR = Path(__file__).resolve().parent / "outputs"/ "concurrent_points_20261013" / SPECIMEN
 (OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
 PLOT_PATH = CACHE_PATH = OUTDIR / "plots" 
 
@@ -281,7 +282,6 @@ def plot_training_points(save_path=None):
     ax.plot(x_wall,  w/2, color="gray", lw=1.2, zorder=1, label="pipe wall")
     ax.plot(x_wall, -w/2, color="gray", lw=1.2, zorder=1)
 
-    # --- boundary / point sets, each a distinct marker+color ---------------
     groups = [
         (R_u1,   "tab:red",    "o", f"$u_1$ wall no-slip ({R_u1.shape[0]})"),
         (R_u2,   "tab:orange", "o", f"$u_2$ wall no-slip ({R_u2.shape[0]})"),
@@ -315,7 +315,6 @@ def plot_training_points(save_path=None):
 
 # plot_training_points(save_path=OUTDIR / "training_points.png")
 
-###
 
 theta = lambda t, i: jax.lax.dynamic_slice(t, (3*i,), (3,))
 
@@ -417,7 +416,6 @@ def make_blocks(R_G):
             ("G2",  R_G),            # backward-Euler momentum, y
             ("s",   R_s)]            # continuity
 
-# --- [PATCH 1] block offsets, needed to index the G1/G2 rows of K^-1 Q^T ---
 def block_slices(R_G):
     """Start/end offsets of each named block in the K / y ordering."""
     offsets = {}
@@ -426,7 +424,6 @@ def block_slices(R_G):
         offsets[name] = (start, start + R.shape[0])
         start += R.shape[0]
     return offsets
-# --- [END PATCH 1] ----------------------------------------------------------
 
 kfn = {
     ("u1","u1"): k_uu[0][0],           ("u1","u2"): k_uu[0][1],
@@ -534,7 +531,7 @@ def g_index(R_G):
 
 
 def build_K_train(theta, R_G, N_G):
-    """Raissi eq.(12):
+    """
         K = [ K_bb + sigma_n^2 I      K_b,n-1                    ]
             [                         K_n-1,n-1 + Sigma_{n-1}    ]
     b   = time-n constraints (wall, periodicity, continuity): sigma_n = 0.
@@ -591,30 +588,26 @@ def _nm_callback(xk):
         print(f"Nelder-Mead Iteration {_NM_STATE['it']:<4} | Value: "
               f"{float(nlp_active(xk, *_NM_STATE['data'])):.6e}", flush=True)
 
-
-# Built ONCE. y, R_G, N_G are passed to run() as arguments (not closed over),
-# so jaxopt's jit compiles the objective once for the whole march.
 NM_SOLVER = jaxopt.ScipyMinimize(
     fun=_nlp_value_zero_grad, value_and_grad=True,
     method="Nelder-Mead", tol=args.tol, maxiter=args.nm_iter,
     callback=_nm_callback, options={"disp": True, "adaptive": True})
 
+LBFGS_SOLVER = jaxopt.ScipyMinimize(
+    fun=nlp_active, method="L-BFGS-B",
+    tol=args.lbfgs_tol, maxiter=args.lbfgs_iter)
 
 def run_nelder_mead(x0, y, R_G, N_G):
     _NM_STATE["it"], _NM_STATE["data"] = 0, (y, R_G, N_G)
     res = NM_SOLVER.run(x0, y, R_G, N_G)
     return res.params, int(res.state.iter_num)
 
-LBFGS_SOLVER = jaxopt.ScipyMinimize(
-    fun=nlp_active, method="L-BFGS-B",
-    tol=args.lbfgs_tol, maxiter=args.lbfgs_iter)
-
 def run_nm_then_lbfgs(x0, y, R_G, N_G):
     ta, nit = run_nelder_mead(x0, y, R_G, N_G)
     if args.lbfgs_iter <= 0:
         return ta, nit
     f_nm = float(nlp_active(ta, y, R_G, N_G))
-    res = LBFGS_SOLVER.run(ta, y, R_G, N_G)          # real gradients via JAX
+    res = LBFGS_SOLVER.run(ta, y, R_G, N_G)         
     tb = res.params
     f_lb = float(nlp_active(tb, y, R_G, N_G))
     ok = bool(jnp.all(jnp.isfinite(tb))) and onp.isfinite(f_lb) and f_lb < f_nm
@@ -673,7 +666,6 @@ def config_fingerprint(R_G0):
         cfg["lbfgs_tol"] = float(args.lbfgs_tol)
     return cache.fingerprint(cfg), cfg
 
-
 def report_theta(theta):
     print(f"  {'block':<6}{'gamma':>9}{'lx':>9}{'ly':>9}")
     for i, name in enumerate(PARAM_BLOCKS):
@@ -720,8 +712,6 @@ row_p  = [k_pu[0],     k_pu[1],    Sp(k_pu[0]),   Sp(k_pu[1]),
 ROWS = {"u1": row_u1, "u2": row_u2, "p": row_p}
 KSTAR = {"u1": k_uu[0][0], "u2": k_uu[1][1], "p": k_pp}
 
-# --- [PATCH 2] joint (u1,u2) prior-covariance builder, needed to seed the
-# next step's Sigma^{t-1,t-1} block (full matrix, not just the diagonal) ---
 def build_Kss_joint(theta, R_star):
     """Prior covariance of the joint (u1,u2) field at R_star -> (2n, 2n)."""
     K11 = kmat(k_uu[0][0])(R_star, R_star, theta)
@@ -729,7 +719,6 @@ def build_Kss_joint(theta, R_star):
     K21 = kmat(k_uu[1][0])(R_star, R_star, theta)
     K22 = kmat(k_uu[1][1])(R_star, R_star, theta)
     return jnp.block([[K11, K12], [K21, K22]])
-# --- [END PATCH 2] ----------------------------------------------------------
 
 def build_K_star_obs(theta, R_star, star, R):
     """Q, shape (len(R_star), ntrain). Columns follow `blocks` order."""
@@ -741,11 +730,6 @@ def prior_var_diag(theta, R_star, star):
     """diag(K**) only - the full n_star x n_star matrix is never needed."""
     k = KSTAR[star]
     return jax.vmap(lambda r: k(r, r, theta))(R_star)
-
-# --- [PATCH 3] predict -> predict_diag / predict_joint ---------------------
-# Implements Sigma^{t,t} = K** - Q K^-1 Q^T + Q K^-1 M K^-1 Q^T
-# (eq. in sec. "Uncertainty propagation"), where M is zero except in the
-# (G1,G2)x(G1,G2) block, where it equals Sigma^{t-1,t-1}.
 
 @partial(jax.jit, static_argnames=("star",))
 def predict_diag(Lc, theta, y, R_star, R_G, star, M_block, idx_G):
@@ -764,7 +748,6 @@ def predict_diag(Lc, theta, y, R_star, R_G, star, M_block, idx_G):
 
     std = jnp.sqrt(jnp.clip(var, 0.0))
     return mean, std
-
 
 @jax.jit
 def predict_joint(Lc, theta, y, R_star, R_G, M_block, idx_G):
@@ -786,11 +769,8 @@ def predict_joint(Lc, theta, y, R_star, R_G, M_block, idx_G):
     C = W[idx_G, :]                                        # (2n_G, 2n)
     cov = cov + C.T @ (M_block @ C)
 
-    cov = 0.5 * (cov + cov.T)                              # symmetrize
+    cov = 0.5 * (cov + cov.T)                             
     return mean[:n], mean[n:], cov
-# --- [END PATCH 3] -----------------------------------------------------------
-
-#### ==================================================================== time loop
  
 key = jrd.PRNGKey(args.artificial_seed)
 key, k0 = jrd.split(key)
@@ -821,7 +801,6 @@ print(f"[config] K = Raissi eq.(12): boundary noise 0, G noise = diag(Sigma^(n-1
       f"eps_jitter = {EPS_JITTER:g}   propagation term (eq.13) = {PROPAGATE}")
 if PROPAGATE:
     print("[warn] Sigma^{n-1} is in K AND in the propagation term -> counted twice")
-
 
 # ---- fit theta once against the first step --------------------------------
 y = make_y(u1_prev, u2_prev)
@@ -893,7 +872,6 @@ if args.fem:
         L=float(L), a=float(a), avg_width=float(avg_width),
         eta=float(η), rho=float(ρ), body_force_x=float(FBODY[0]),
         dt=float(Δt), nx=args.fem_nx, ny=args.fem_ny)
-
 
 for n in range(1, args.n_loop + 1):
     
@@ -1031,7 +1009,6 @@ for n in range(1, args.n_loop + 1):
     #    uncertainty forward, replacing the old "exact-value" assumption)
     u1_prev, u2_prev, R_G, Sigma_prev = u1_next, u2_next, R_G_next, Sigma_next
 
-
 # ==================================================================== summary
 
 t_hist  = onp.array([h["t"] for h in history])
@@ -1059,6 +1036,7 @@ fig.savefig(OUTDIR / f"march_summary_{fp}.png", dpi=140, bbox_inches="tight")
 print(f"\n[plot] {OUTDIR / f'march_summary_{fp}.png'}")
 
 # ==================== (a) COVERAGE / CALIBRATION, ux & uy ====================
+# ==================== (a) UNCERTAINTY & COVERAGE, ux & uy ====================
 def _plot_calibration(comp_name, symbol):
     if not any(f"coverage_95_{comp_name}" in h for h in history):
         print(f"[unc] no FEM per-step data for {comp_name} -- skipped (run with --fem)")
@@ -1069,23 +1047,28 @@ def _plot_calibration(comp_name, symbol):
     twosig_max_h  = onp.array([h[f"twosig_max_{comp_name}"]  for h in history])
     twosig_mean_h = onp.array([h[f"twosig_mean_{comp_name}"] for h in history])
 
-    fig, ax = plt.subplots(1, 2, figsize=(13, 4.6))
+    # ---- figure 1: 2-sigma width vs time
+    fig, ax = plt.subplots(figsize=(7, 4.8))
+    ax.semilogy(t_hist, twosig_max_h,  "o-", label=rf"max $2\sigma$ ({symbol})")
+    ax.semilogy(t_hist, twosig_mean_h, "s-", ms=3, label=rf"mean $2\sigma$ ({symbol})")
+    ax.set_xlabel("$t$"); ax.set_ylabel(rf"$2\sigma({symbol[1:-1]})$")
+    ax.legend(); ax.grid(alpha=.3)
+    fig.tight_layout()                       # leaves room for the x-axis label
+    out = OUTDIR / f"uncertainty_2sigma_{comp_name}_{fp}.png"
+    fig.savefig(out, dpi=150); plt.close(fig)
+    print(f"[plot] {out}")
 
-    ax[0].semilogy(t_hist, twosig_max_h,  "o-", label=rf"max $2\sigma$ ({symbol})")
-    ax[0].semilogy(t_hist, twosig_mean_h, "s-", ms=3, label=rf"mean $2\sigma$ ({symbol})")
-    ax[0].set_xlabel("$t$"); ax[0].set_ylabel(rf"$2\sigma({symbol[1:-1]})$")
-    ax[0].legend(); ax[0].grid(alpha=.3)
-
-    ax[1].plot(t_cov, 100*cov, "o-", color="tab:green")
-    ax[1].axhline(95.0, color="r", ls="--", lw=1.5, label="nominal 95%")
-    ax[1].set_ylim(0, 102)
-    ax[1].set_xlabel("$t$")
-    ax[1].set_ylabel(f"points within $2\\sigma$ of FEM  [%]  ({symbol})")
-    ax[1].legend(); ax[1].grid(alpha=.3)
-
-    fig.subplots_adjust(wspace=0.30)
-    out = OUTDIR / f"uncertainty_calibration_{comp_name}_{fp}.png"
-    fig.savefig(out, dpi=150)
+    # ---- figure 2: coverage vs time
+    fig, ax = plt.subplots(figsize=(7, 4.8))
+    ax.plot(t_cov, 100*cov, "o-", color="tab:green")
+    ax.axhline(95.0, color="r", ls="--", lw=1.5, label="nominal 95%")
+    ax.set_ylim(0, 102)
+    ax.set_xlabel("$t$")
+    ax.set_ylabel(f"points within $2\\sigma$ of FEM  [%]  ({symbol})")
+    ax.legend(); ax.grid(alpha=.3)
+    fig.tight_layout()
+    out = OUTDIR / f"uncertainty_coverage_{comp_name}_{fp}.png"
+    fig.savefig(out, dpi=150); plt.close(fig)
     print(f"[plot] {out}")
 
 _plot_calibration("ux", r"$u_x$")
@@ -1101,8 +1084,6 @@ def _plot_mean_error(kind, ylabel, fname):
     fig, ax = plt.subplots(figsize=(7, 4.5))
     ax.semilogy(t, [h[f"{kind}_mean_ux"] for h in hh], "o-", ms=3, label=r"$u_x$")
     ax.semilogy(t, [h[f"{kind}_mean_uy"] for h in hh], "s-", ms=3, label=r"$u_y$")
-    ax.axvline(args.t_stop, color="gray", ls=":", lw=1.2,
-               label=rf"$t_{{stop}}={args.t_stop:g}$")
     ax.set_xlabel("$t$"); ax.set_ylabel(ylabel)
     ax.legend(); ax.grid(alpha=0.3)
     fig.tight_layout()
@@ -1143,11 +1124,13 @@ if args.profiles:
         n_times=args.profile_n_times)  
 
 if args.gif:
-    make_gif.build_gif(OUTDIR / "plots", OUTDIR / f"evolution_{args.gif_prefix}_{fp}.gif",
-                       prefix=args.gif_prefix, fps=args.gif_fps,
-                       width=args.gif_width, fp=fp)
+    make_gif.build_state_gif(
+        OUTDIR, OUTDIR / f"evolution_{fp}.gif",
+        XX=onp.asarray(XX), YY=onp.asarray(YY),
+        L=float(L), a=float(a), avg_width=float(avg_width),
+        fps=args.gif_fps, dpi=args.gif_dpi, max_step=args.n_loop,
+        frames_dir=OUTDIR / "gif_frames")
 
-# ==================================================================== report
 write_report(history, fp, args, OUTDIR,
              n_active=ACTIVE_IDX.size, n_theta=theta_init.shape[0],
              eps_jitter=EPS_JITTER, propagate=PROPAGATE)
