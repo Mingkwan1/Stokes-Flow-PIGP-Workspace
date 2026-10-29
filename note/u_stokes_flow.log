@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.9)  18 SEP 2026 01:31
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.9.9)  18 SEP 2026 14:16
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -581,51 +581,68 @@ Package biblatex Info: ... and expl3
 Package: xparse 2025-10-09 L3 Experimental document command parser
 )
 Package: blx-case-expl3 2025/07/10 v3.21 expl3 case changing code for biblatex
-)) (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/tikz/libraries\tikzlibraryshapes.geometric.code.tex
+)) (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/latex/geometry\geometry.sty
+Package: geometry 2026/03/07 v6.0 Page Geometry
+ (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/generic/iftex\ifvtex.sty
+Package: ifvtex 2019/10/25 v1.7 ifvtex legacy package. Use iftex instead.
+)
+\Gm@cnth=\count456
+\Gm@cntv=\count457
+\c@Gm@tempcnt=\count458
+\Gm@bindingoffset=\dimen266
+\Gm@wd@mp=\dimen267
+\Gm@odd@mp=\dimen268
+\Gm@even@mp=\dimen269
+\Gm@layoutwidth=\dimen270
+\Gm@layoutheight=\dimen271
+\Gm@layouthoffset=\dimen272
+\Gm@layoutvoffset=\dimen273
+\Gm@dimlist=\toks37
+ (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/latex/geometry\geometry.cfg)) (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/tikz/libraries\tikzlibraryshapes.geometric.code.tex
 File: tikzlibraryshapes.geometric.code.tex 2025-08-29 v3.1.11a (3.1.11a)
  (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/generic/pgf/libraries/shapes\pgflibraryshapes.geometric.code.tex
 File: pgflibraryshapes.geometric.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 )) (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/generic/pgf/libraries\pgflibraryarrows.meta.code.tex
 File: pgflibraryarrows.meta.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-\pgfarrowinset=\dimen266
-\pgfarrowlength=\dimen267
-\pgfarrowwidth=\dimen268
-\pgfarrowlinewidth=\dimen269
+\pgfarrowinset=\dimen274
+\pgfarrowlength=\dimen275
+\pgfarrowwidth=\dimen276
+\pgfarrowlinewidth=\dimen277
 ) (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/tikz/libraries\tikzlibrarypositioning.code.tex
 File: tikzlibrarypositioning.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 )
-\@quotelevel=\count456
-\@quotereset=\count457
+\@quotelevel=\count459
+\@quotereset=\count460
  (u_stokes_flow.aux)
 \openout1 = `u_stokes_flow.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 24.
-LaTeX Font Info:    ... okay on input line 24.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 24.
-LaTeX Font Info:    ... okay on input line 24.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 24.
-LaTeX Font Info:    ... okay on input line 24.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 24.
-LaTeX Font Info:    ... okay on input line 24.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 24.
-LaTeX Font Info:    ... okay on input line 24.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 24.
-LaTeX Font Info:    ... okay on input line 24.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 24.
-LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 26.
+LaTeX Font Info:    ... okay on input line 26.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 26.
+LaTeX Font Info:    ... okay on input line 26.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 26.
+LaTeX Font Info:    ... okay on input line 26.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 26.
+LaTeX Font Info:    ... okay on input line 26.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 26.
+LaTeX Font Info:    ... okay on input line 26.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 26.
+LaTeX Font Info:    ... okay on input line 26.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 26.
+LaTeX Font Info:    ... okay on input line 26.
  (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/context/base/mkii\supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
-\scratchcounter=\count458
-\scratchdimen=\dimen270
+\scratchcounter=\count461
+\scratchdimen=\dimen278
 \scratchbox=\box68
-\nofMPsegments=\count459
-\nofMParguments=\count460
-\everyMPshowfont=\toks37
-\MPscratchCnt=\count461
-\MPscratchDim=\dimen271
-\MPnumerator=\count462
-\makeMPintoPDFobject=\count463
-\everyMPtoPDFconversion=\toks38
+\nofMPsegments=\count462
+\nofMParguments=\count463
+\everyMPshowfont=\toks38
+\MPscratchCnt=\count464
+\MPscratchDim=\dimen279
+\MPnumerator=\count465
+\makeMPintoPDFobject=\count466
+\everyMPtoPDFconversion=\toks39
 ) (C:\Users\MIngkwan\AppData\Local\Programs\MiKTeX\tex/latex/epstopdf-pkg\epstopdf-base.sty
 Package: epstopdf-base 2020-01-24 v2.11 Base part for package epstopdf
 Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 485.
@@ -662,118 +679,120 @@ Package biblatex Info: Automatic encoding selection.
 Package biblatex Info: Trying to load bibliographic data...
 Package biblatex Info: ... file 'u_stokes_flow.bbl' found.
  (u_stokes_flow.bbl)
-Package biblatex Info: Reference section=0 on input line 24.
-Package biblatex Info: Reference segment=0 on input line 24.
- [1
+Package biblatex Info: Reference section=0 on input line 26.
+Package biblatex Info: Reference segment=0 on input line 26.
+
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+*geometry* verbose mode - [ preamble ] result:
+* driver: pdftex
+* paper: a4paper
+* layout: <same size as paper>
+* layoutoffset:(h,v)=(0.0pt,0.0pt)
+* modes: 
+* h-part:(L,W,R)=(71.13188pt, 455.24411pt, 71.13188pt)
+* v-part:(T,H,B)=(71.13188pt, 702.78308pt, 71.13188pt)
+* \paperwidth=597.50787pt
+* \paperheight=845.04684pt
+* \textwidth=455.24411pt
+* \textheight=702.78308pt
+* \oddsidemargin=-1.1381pt
+* \evensidemargin=-1.1381pt
+* \topmargin=-38.1381pt
+* \headheight=12.0pt
+* \headsep=25.0pt
+* \topskip=12.0pt
+* \footskip=30.0pt
+* \marginparwidth=35.0pt
+* \marginparsep=10.0pt
+* \columnsep=10.0pt
+* \skip\footins=10.8pt plus 4.0pt minus 2.0pt
+* \hoffset=0.0pt
+* \voffset=0.0pt
+* \mag=1000
+* \@twocolumnfalse
+* \@twosidefalse
+* \@mparswitchfalse
+* \@reversemarginfalse
+* (1in=72.27pt=25.4mm, 1cm=28.453pt)
+
+[1
 
 {C:/Users/MIngkwan/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}]
 Chapter 1.
 [1
 
-] [2]
-Overfull \hbox (26.94894pt too wide) in paragraph at lines 113--117
-\OT1/cmr/m/n/12 at $[] = [[]\OML/cmm/m/it/12 ; []; :::; []\OT1/cmr/m/n/12 ]$, will pro-vide val-ues for $[] = [[]\OML/cmm/m/it/12 ; []; :::; []\OT1/cmr/m/n/12 ]$.
- []
-
-[3]
-Overfull \hbox (3.35564pt too wide) in paragraph at lines 215--218
-\OT1/cmr/m/n/12 down-hill sim-plex method over 500 it-er-a-tions, match-ing the ap-proach of []Molina
- []
-
-[4]
+] [2] [3] [4]
 Chapter 2.
 [5
 
 ] [6] [7] [8] [9] [10]
-
-LaTeX Warning: `h' float specifier changed to `ht'.
-
-[11] [12]
 Chapter 3.
-
-Overfull \hbox (20.35379pt too wide) in paragraph at lines 653--653
-[]\OT1/cmr/bx/n/17.28 Pressure-driven flow be-tween par-al-lel plates 
- []
-
-
-Overfull \hbox (0.67929pt too wide) in paragraph at lines 656--663
-\OT1/cmr/m/n/12 For an im-pul-sively started plane Poiseuille flow be-tween two sta-tion-ary plates,
- []
-
-[13
-
-]
-<../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png, id=70, 1221.363pt x 910.602pt>
+<../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png, id=59, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png  used on input line 683.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [14 <../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png>]
-<../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png, id=76, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png  used on input line 685.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+[11
+
+] [12 <../src/workspace/outputs/usf_dt0.05_10loops_270artificial_plates/evolution_ux_6b8120731a2e6b7d.png>]
+<../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png, id=70, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png  used on input line 724.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [15]
-<../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png, id=80, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png  used on input line 726.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+<../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png, id=71, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png  used on input line 733.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [16 <../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png>]
-Overfull \hbox (6.07805pt too wide) in paragraph at lines 740--748
-[]\OT1/cmr/m/n/12 The rel-a-tive $\OML/cmm/m/it/12 L[]$ \OT1/cmr/m/n/12 er-ror in $\OML/cmm/m/it/12 u[]$ \OT1/cmr/m/n/12 is non-monotonic over the five snap-shots,peaking
- []
-
-[17 <../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png>]
-<../src/workspace/outputs/usf_dt0.01_25loops/evolution_ux_d23ad2f8dae12576.png, id=89, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png  used on input line 735.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+ [13 <../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_ux_fc555c72b5d04349.png>] [14 <../src/workspace/outputs/usf_dt0.05_10loops_340_artificial/evolution_uy_fc555c72b5d04349.png>]
+<../src/workspace/outputs/usf_dt0.01_25loops/evolution_ux_d23ad2f8dae12576.png, id=80, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.01_25loops/evolution_ux_d23ad2f8dae12576.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.01_25loops/evolution_ux_d23ad2f8dae12576.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.01_25loops/evolution_ux_d23ad2f8dae12576.png  used on input line 772.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [18]
-<../src/workspace/outputs/usf_dt0.01_25loops/evolution_uy_d23ad2f8dae12576.png, id=94, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.01_25loops/evolution_ux_d23ad2f8dae12576.png  used on input line 774.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+<../src/workspace/outputs/usf_dt0.01_25loops/evolution_uy_d23ad2f8dae12576.png, id=81, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.01_25loops/evolution_uy_d23ad2f8dae12576.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.01_25loops/evolution_uy_d23ad2f8dae12576.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.01_25loops/evolution_uy_d23ad2f8dae12576.png  used on input line 781.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [19 <../src/workspace/outputs/usf_dt0.01_25loops/evolution_ux_d23ad2f8dae12576.png>] [20 <../src/workspace/outputs/usf_dt0.01_25loops/evolution_uy_d23ad2f8dae12576.png>] [21]
-<../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_f43e178f43550944.png, id=106, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.01_25loops/evolution_uy_d23ad2f8dae12576.png  used on input line 783.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+ [15 <../src/workspace/outputs/usf_dt0.01_25loops/evolution_ux_d23ad2f8dae12576.png>] [16 <../src/workspace/outputs/usf_dt0.01_25loops/evolution_uy_d23ad2f8dae12576.png>] [17]
+<../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_f43e178f43550944.png, id=93, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_f43e178f43550944.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_f43e178f43550944.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_f43e178f43550944.png  used on input line 884.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [22]
-<../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_f43e178f43550944.png, id=110, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_f43e178f43550944.png  used on input line 886.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+<../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_f43e178f43550944.png, id=94, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_f43e178f43550944.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_f43e178f43550944.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_f43e178f43550944.png  used on input line 891.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [23 <../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_f43e178f43550944.png>]
-<../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_ux_d43eeb4dcf1493ac.png, id=115, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_f43e178f43550944.png  used on input line 893.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+ [18 <../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_f43e178f43550944.png>]
+<../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_ux_d43eeb4dcf1493ac.png, id=100, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_ux_d43eeb4dcf1493ac.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_ux_d43eeb4dcf1493ac.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_ux_d43eeb4dcf1493ac.png  used on input line 898.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [24 <../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_f43e178f43550944.png>]
-<../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_uy_d43eeb4dcf1493ac.png, id=121, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_ux_d43eeb4dcf1493ac.png  used on input line 900.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+ [19 <../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_f43e178f43550944.png>]
+<../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_uy_d43eeb4dcf1493ac.png, id=105, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_uy_d43eeb4dcf1493ac.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_uy_d43eeb4dcf1493ac.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_uy_d43eeb4dcf1493ac.png  used on input line 905.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [25 <../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_ux_d43eeb4dcf1493ac.png>]
-<../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_5ec395ee3646912a.png, id=126, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_uy_d43eeb4dcf1493ac.png  used on input line 907.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+ [20 <../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_ux_d43eeb4dcf1493ac.png>]
+<../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_5ec395ee3646912a.png, id=110, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_5ec395ee3646912a.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_5ec395ee3646912a.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_5ec395ee3646912a.png  used on input line 912.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [26 <../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_uy_d43eeb4dcf1493ac.png>]
-<../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_5ec395ee3646912a.png, id=131, 1221.363pt x 910.602pt>
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_5ec395ee3646912a.png  used on input line 914.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+ [21 <../src/workspace/outputs/usf_dt0.05_10loops_220artificial/evolution_uy_d43eeb4dcf1493ac.png>]
+<../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_5ec395ee3646912a.png, id=115, 1221.363pt x 910.602pt>
 File: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_5ec395ee3646912a.png Graphic file (type png)
 <use ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_5ec395ee3646912a.png>
-Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_5ec395ee3646912a.png  used on input line 919.
-(pdftex.def)             Requested size: 390.0pt x 290.75943pt.
- [27 <../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_5ec395ee3646912a.png>] [28 <../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_5ec395ee3646912a.png>] [29
+Package pdftex.def Info: ../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_5ec395ee3646912a.png  used on input line 921.
+(pdftex.def)             Requested size: 455.24411pt x 339.4046pt.
+ [22 <../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_ux_5ec395ee3646912a.png>] [23 <../src/workspace/outputs/usf_dt0.05_10loops_150artificial/evolution_uy_5ec395ee3646912a.png>] [24
 
 ] (u_stokes_flow.aux)
  ***********
@@ -785,17 +804,17 @@ Package logreq Info: Writing requests to 'u_stokes_flow.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 22756 strings out of 467871
- 475160 string characters out of 5416925
- 1398160 words of memory out of 5000000
- 51313 multiletter control sequences out of 15000+600000
+ 23242 strings out of 467871
+ 482838 string characters out of 5416925
+ 1414249 words of memory out of 5000000
+ 51792 multiletter control sequences out of 15000+600000
  637429 words of font info for 73 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  84i,14n,104p,778b,5052s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmbsy10.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cmextra/cmbsy6.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cmextra/cmbsy8.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmbx12.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmbx6.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmbx8.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmex10.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi12.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi6.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmib10.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cmextra/cmmib6.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cmextra/cmmib8.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr12.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr17.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr6.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy6.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb><C:/Users/MIngkwan/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmti12.pfb>
-Output written on u_stokes_flow.pdf (30 pages, 15022161 bytes).
+Output written on u_stokes_flow.pdf (25 pages, 15018863 bytes).
 PDF statistics:
- 229 PDF objects out of 1000 (max. 8388607)
+ 214 PDF objects out of 1000 (max. 8388607)
  0 named destinations out of 1000 (max. 500000)
  68 words of extra memory for PDF output out of 10000 (max. 10000000)
 

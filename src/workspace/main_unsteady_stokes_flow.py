@@ -1,6 +1,3 @@
-from functools import wraps
-from typing import NamedTuple
-
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -15,32 +12,72 @@ import jaxopt
 import numpy as onp
 
 import argparse
-import hashlib
-import json
 import time
 from pathlib import Path
 
-import plotting
-import fem_stokes
-import evolution_plot
+from utils import plotting, fem_stokes, evolution_plot, make_gif, cache
+from utils.write_report import write_report
 
 from functools import partial
 
 import matplotlib.pyplot as plt
 
-
+plt.rcParams.update({
+    "font.size":         14,   
+    "axes.labelsize":    16,   
+    "axes.titlesize":    15,   
+    "xtick.labelsize":   13,   
+    "ytick.labelsize":   13,   
+    "legend.fontsize":   13,   
+    "axes.linewidth":    1.2,  
+    "lines.linewidth":   1.8,  
+    "xtick.major.width": 1.2, "ytick.major.width": 1.2,
+    "xtick.major.size":  5,   "ytick.major.size":  5,
+    "savefig.pad_inches": 0.02,
+})
 
 parser = argparse.ArgumentParser(description="2D Stokes flow PIGP (18 hyperparameters)")
+
+# Profile Plotting
+parser.add_argument("--profiles", action="store_true",
+                    help="write wall-normal y-vs-velocity profile plots")
+parser.add_argument("--profile-x-ux", type=float, nargs=2,
+                    default=[0.625, 1.875],
+                    help="x locations for the u_x profiles (default L/4, 3L/4)")
+parser.add_argument("--profile-x-uy", type=float, nargs=2,
+                    default=[0.9375, 1.5625],
+                    help="x locations for the u_y profiles (default 3L/8, 5L/8)")
+parser.add_argument("--profile-n-times", type=int, default=3,
+                    help="how many of the --n-snap snapshots to draw in the "
+                         "profile figure (first/middle/last)")
+
+# FEM options
 parser.add_argument("--fem", action="store_true",
                     help="solve the same problem with dolfinx and compare")
 parser.add_argument("--fem-refit", action="store_true",
                     help="force re-solving the FEM even if a valid cache exists")
 parser.add_argument("--fem-nx", type=int, default=200)
 parser.add_argument("--fem-ny", type=int, default=80)
+
+# Propagation
+parser.add_argument("--eps-jitter", type=float, default=0.0,
+                    help="numerical jitter eps (K -> K  eps^2 I). 0 = K exactly "
+                         "as Raissi eq.(12) with noiseless boundary data. Molina: 1e-3")
+parser.add_argument("--propagate", choices=["on", "off"], default="off",
+                    help="Raissi eq.(13) term Q K^-1 M K^-1 Q^T. Off: Sigma^{n-1} "
+                         "is already in K, so 'on' counts it twice")
+
+#Optimization
+
 parser.add_argument("--fit", action="store_true", help="force re-optimization")
 parser.add_argument("--no-cache", action="store_true", help="do not read or write cache")
 parser.add_argument("--nm-iter", type=int, default=500)
-parser.add_argument("--tol", type=float, default=1e-4)
+parser.add_argument("--tol", type=float, default=1e-2)
+
+parser.add_argument("--lbfgs-iter", type=int, default=0,
+                    help="L-BFGS polish iterations after Nelder-Mead (0 = NM only)")
+parser.add_argument("--lbfgs-tol", type=float, default=1e-6)
+
 parser.add_argument("--zero-up", action="store_true",
                     help="force k_up = k_pu = 0 (no u-p cross-covariance); "
                          "skips ~half the derivative-kernel work")
@@ -76,22 +113,41 @@ parser.add_argument("--test-margin", type=float, default=0.999,
                          "half-width. --fem caps it at 0.98: the FEM mesh "
                          "stops at the wall and the interpolator returns NaN "
                          "outside it, which poisons the L2 error metric.")
-
+# Evoluation plots
 parser.add_argument("--evolution", action="store_true",
                         help="write the u_x/u_y evolution figure at the end "
                              "of the march")
 parser.add_argument("--n-snap", type=int, default=5,
                         help="number of time snapshots in that figure")
+parser.add_argument("--t-stop", type=float, default=0.32,
+                    help="last time shown in the evolution/profile/uncertainty "
+                         "figures (the march itself may run longer)")
 parser.add_argument("--evolution-cmap", default="RdBu_r",
                         help="colormap, used for BOTH u_x and u_y")
 parser.add_argument("--evolution-share-rows", action="store_true",
                         help="put u_x and u_y on one common colour scale")
 
+# Error statistics / GIF
+parser.add_argument("--rel-floor", type=float, default=1e-3,
+                    help="pointwise relative error is only evaluated where "
+                         "|FEM| >= rel_floor * max|FEM|")
+parser.add_argument("--gif", action="store_true",
+                    help="build a GIF of every step at the end")
+parser.add_argument("--gif-fps", type=int, default=10)
+parser.add_argument("--gif-width", type=int, default=900)
+parser.add_argument("--gif-prefix", default="combined")
+parser.add_argument("--gif-dpi", type=int, default=100)
+
 args = parser.parse_args()
 
-SPECIMEN = f"usf_dt0.05_10loops_{args.n_artificial}artificial_{args.geometry}_200loop"
-
-OUTDIR = Path(__file__).resolve().parent / "outputs"/ SPECIMEN
+SPECIMEN = (
+    f"20261008_new_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
+    f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
+    f"fresh_points_{args.fresh_points}_"
+    f"refit_everystep_{args.refit_every_step}"
+    f"_eps_{args.eps_jitter}_zeroup_{args.zero_up}"
+)
+OUTDIR = Path(__file__).resolve().parent / "outputs"/ "concurrent_points_20261013" / SPECIMEN
 (OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
 PLOT_PATH = CACHE_PATH = OUTDIR / "plots" 
 
@@ -117,10 +173,11 @@ def width(x):
     return avg_width + 2 * a * jnp.sin (2 * jnp.pi * x / L)
 
 η = 1.0 # Viscosity of the fluid
-ρ = 1.0
+ρ = 1.0 # Density rho
 Q = 1.0 # Flow rate
 L = 2.5 # Characteristic Length
 avg_width = 1 # Average width
+
 a = 0.2 if args.geometry == "sinusoidal" else 0.0   # wall amplitude
 if args.geometry == "plates":
     print("[config] flat parallel plates: a=0, "f"constant half-width {avg_width/2:.3f}")
@@ -130,16 +187,7 @@ MARGIN = 0.999
 
 Δt = args.dt
 
-theta_init = jnp.array([
-    1.2, -1.2, -1.2,   # u1-u1
-   1.2, -1.2, -1.2,   # u1-u2  
-    1.2, -1.2, -1.2,   # u2-u2
-   0.0, -1.2, -1.2,   # u1-p
-   0.0, -1.2, -1.2,   # u2-p
-    1.2, -1.2, -1.2,   # p-p
-])
-
-EPS_JITTER = 1e-3
+EPS_JITTER = args.eps_jitter
 
 ## 1.) velocity at bounday u_b (62 x 2 points)
 
@@ -181,7 +229,7 @@ R_sp = jnp.stack([x_s_p,y_s_p], axis=-1)
 
 s_p = jnp.zeros_like(y_s_p)
 
-## 4.) Governing equations f (337 x 2 points)
+## 4.) Governing equations f,g (337 x 2 points)
 
 N_f = N_s = 340
 
@@ -216,7 +264,6 @@ s = jnp.zeros(N_s)
 
 ###
 
-
 def sample_artificial(n, key, fresh=False, margin=0.98):
     """Draw n artificial-data locations from the candidate pool R_candidate."""
     if fresh:
@@ -235,7 +282,6 @@ def plot_training_points(save_path=None):
     ax.plot(x_wall,  w/2, color="gray", lw=1.2, zorder=1, label="pipe wall")
     ax.plot(x_wall, -w/2, color="gray", lw=1.2, zorder=1)
 
-    # --- boundary / point sets, each a distinct marker+color ---------------
     groups = [
         (R_u1,   "tab:red",    "o", f"$u_1$ wall no-slip ({R_u1.shape[0]})"),
         (R_u2,   "tab:orange", "o", f"$u_2$ wall no-slip ({R_u2.shape[0]})"),
@@ -269,7 +315,6 @@ def plot_training_points(save_path=None):
 
 # plot_training_points(save_path=OUTDIR / "training_points.png")
 
-###
 
 theta = lambda t, i: jax.lax.dynamic_slice(t, (3*i,), (3,))
 
@@ -371,16 +416,14 @@ def make_blocks(R_G):
             ("G2",  R_G),            # backward-Euler momentum, y
             ("s",   R_s)]            # continuity
 
-# blocks = [
-#     ("u1",  R_u_train),                 # no-slip, u_x
-#     ("u2",  R_u_train),                 # no-slip, u_y
-#     ("Su1", R_dSu1),                    # periodicity, u_x
-#     ("Su2", R_dSu2),                    # periodicity, u_y
-#     ("Sp",  R_sp),                      # periodicity, p
-#     ("G1",  R_G1),                      # backward-Euler momentum, x
-#     ("G2",  R_G2),                      # backward-Euler momentum, y
-#     ("s",   R_s),                       # continuity
-# ]
+def block_slices(R_G):
+    """Start/end offsets of each named block in the K / y ordering."""
+    offsets = {}
+    start = 0
+    for name, R in make_blocks(R_G):
+        offsets[name] = (start, start + R.shape[0])
+        start += R.shape[0]
+    return offsets
 
 kfn = {
     ("u1","u1"): k_uu[0][0],           ("u1","u2"): k_uu[0][1],
@@ -426,14 +469,6 @@ def build_K(theta,R):
             rows[j][i] = rows[i][j].T       
     return jnp.block(rows)
 
-theta_init = jnp.array([
-    1.0, jnp.log(0.50), jnp.log(0.30),   # u1-u1
-   0.8, jnp.log(0.60), jnp.log(0.35),   # u1-u2  
-    1.1, jnp.log(0.55), jnp.log(0.32),   # u2-u2
-   0.0, jnp.log(0.70), jnp.log(0.40),   # u1-p
-   0.0, jnp.log(0.65), jnp.log(0.38),   # u2-p
-    0.7, jnp.log(0.80), jnp.log(0.45),   # p-p
-])
 
 theta_init = jnp.array([
     1.2, jnp.log(0.30), jnp.log(0.30),   # u1-u1
@@ -443,7 +478,14 @@ theta_init = jnp.array([
    0.0, jnp.log(0.3), jnp.log(0.30),   # u2-p
     1.2, jnp.log(0.30), jnp.log(0.3),   # p-p
 ])
+DEAD_BLOCKS = (3, 4) if args.zero_up else ()          # u1-p, u2-p
+ACTIVE_IDX = onp.array([i for i in range(theta_init.shape[0])
+                        if i // 3 not in DEAD_BLOCKS])
 
+def expand_theta(theta_active, template=theta_init):
+    """Active vector -> full 18-vector. Dead entries keep the template value;
+    they are never read, because k_up = k_pu = None under --zero-up."""
+    return template.at[ACTIVE_IDX].set(theta_active)
 def make_y(u1_prev, u2_prev):
     """u{1,2}_prev: u^{n-1} evaluated at R_G1 / R_G2."""
     return jnp.concatenate([
@@ -462,17 +504,6 @@ def n_train(R_G):
     return (2*R_u_train.shape[0] + R_dSu1.shape[0] + R_dSu2.shape[0]
             + R_sp.shape[0] + 2*R_G.shape[0] + R_s.shape[0])
 
-# y = jnp.concatenate([
-#     u1_train,                      # (62,)  no-slip, top wall
-#     u2_train,                      # (62,)  no-slip, bottom wall
-#     s_u_1,                     # (15,)  periodicity, u^x
-#     s_u_2,                     # (15,)  periodicity, u^y
-#     s_p,                       # (15,)  periodicity, p
-#     f_1,                       # (340,) = -ΔP/L
-#     f_2,                       # (340,) = 0
-#     s,                         # (340,) = 0
-# ])
-# print(y)
 
 def inspect_K_blocks(theta,R):
     blocks = make_blocks(R)
@@ -493,56 +524,115 @@ def inspect_K_blocks(theta,R):
 
 # inspect_K_blocks(theta_init)
 
-def neg_log_posterior(theta, y, R_G):
-    ntrain=y.shape[0]
-    K  = build_K(theta,R_G) + (EPS_JITTER**2) * jnp.eye(ntrain)
-    Lc = jnp.linalg.cholesky(K)
+def g_index(R_G):
+    """Rows of K belonging to G1 then G2 (same order as Sigma: [u1 pts; u2 pts])."""
+    o = block_slices(R_G)
+    return jnp.concatenate([jnp.arange(*o["G1"]), jnp.arange(*o["G2"])])
+
+
+def build_K_train(theta, R_G, N_G):
+    """
+        K = [ K_bb + sigma_n^2 I      K_b,n-1                    ]
+            [                         K_n-1,n-1 + Sigma_{n-1}    ]
+    b   = time-n constraints (wall, periodicity, continuity): sigma_n = 0.
+    n-1 = artificial data (G1, G2): per-point variance of u^{n-1}.
+    eps^2 I is added only if --eps-jitter > 0."""
+    K = build_K(theta, R_G)
+    if EPS_JITTER > 0:
+        K = K + (EPS_JITTER**2) * jnp.eye(n_train(R_G))
+    ig = g_index(R_G)
+    return K.at[jnp.ix_(ig, ig)].add(N_G)
+
+
+def neg_log_posterior(theta, y, R_G, N_G):
+    ntrain = y.shape[0]
+    Lc = jnp.linalg.cholesky(build_K_train(theta, R_G, N_G))
     v  = solve_triangular(Lc, y, lower=True)
-    return (0.5*jnp.dot(v, v) + jnp.sum(jnp.log(jnp.diag(Lc)))
-            + 0.5*ntrain*jnp.log(2.0*jnp.pi)
-            + 0.5*jnp.sum(theta[0::3]**2)/(2.0**2))
+    jeffreys_nlp = jnp.sum(theta[ACTIVE_IDX])         
+    val = (0.5*jnp.dot(v, v) + jnp.sum(jnp.log(jnp.diag(Lc)))
+           + 0.5*ntrain*jnp.log(2.0*jnp.pi) + jeffreys_nlp)
+    return jnp.where(jnp.isfinite(val), val, jnp.inf)    
+
 
 @jax.jit
-def factorize(theta, R_G):
-    """One Cholesky. Reusable across steps only if R_G is held fixed."""
-    n = n_train(R_G)
-    K = build_K(theta, R_G) + (EPS_JITTER**2) * jnp.eye(n)
-    return jnp.linalg.cholesky(K)
+def nlp_active(theta_active, y, R_G, N_G):
+    """Objective over the ACTIVE hyperparameters only."""
+    return neg_log_posterior(expand_theta(theta_active), y, R_G, N_G)
 
-fun = neg_log_posterior
 
-def run_nelder_mead(init_params, fun, maxiter=500, tol=1e-3):
-    # Simple list to keep track of iterations across callback calls
-    iter_count = [0]
-    
-    def callback(xk):
-        iter_count[0] += 1
-        # Calculate current loss/posterior value
-        val = fun(xk)
-        print(f"Nelder-Mead Iteration {iter_count[0]:<4} | Value: {val:.4e}")
+@jax.jit
+def factorize(theta, R_G, N_G):
+    return jnp.linalg.cholesky(build_K_train(theta, R_G, N_G))
 
-    solver = jaxopt.ScipyMinimize(
-        fun=fun,
-        method="Nelder-Mead",
-        tol=tol,
-        maxiter=maxiter,
-        callback=callback, # Triggers on each iteration
-        options={"disp": True, "adaptive": True},
-    )
-    
-    res = solver.run(init_params)
-    return res.params, res.state
+def artificial_noise(Sigma_prev):
+    """sigma_{n-1}^2 of eq.(12), per artificial point = diag(Sigma^{n-1,n-1}).
+    G = u^{n-1} + dt*F with F deterministic, so Var(G) = Var(u^{n-1}).
+    Clipped at 0 (round-off)."""
+    return jnp.diag(jnp.clip(jnp.diag(Sigma_prev), 0.0))
+
+PROPAGATE = (args.propagate == "on")
+
+
+def _nlp_value_zero_grad(theta_active, y, R_G, N_G):
+    """jaxopt.ScipyMinimize always requests (value, grad) with jac=True.
+    Nelder-Mead never uses the gradient, so return zeros instead of paying
+    for a backward pass through the Cholesky at every evaluation."""
+    return nlp_active(theta_active, y, R_G, N_G), jnp.zeros_like(theta_active)
+
+
+_NM_STATE = {"it": 0, "data": None}
+
+def _nm_callback(xk):
+    _NM_STATE["it"] += 1
+    if _NM_STATE["it"] % 25 == 0:                        # 1 extra eval per 25 iters
+        print(f"Nelder-Mead Iteration {_NM_STATE['it']:<4} | Value: "
+              f"{float(nlp_active(xk, *_NM_STATE['data'])):.6e}", flush=True)
+
+NM_SOLVER = jaxopt.ScipyMinimize(
+    fun=_nlp_value_zero_grad, value_and_grad=True,
+    method="Nelder-Mead", tol=args.tol, maxiter=args.nm_iter,
+    callback=_nm_callback, options={"disp": True, "adaptive": True})
+
+LBFGS_SOLVER = jaxopt.ScipyMinimize(
+    fun=nlp_active, method="L-BFGS-B",
+    tol=args.lbfgs_tol, maxiter=args.lbfgs_iter)
+
+def run_nelder_mead(x0, y, R_G, N_G):
+    _NM_STATE["it"], _NM_STATE["data"] = 0, (y, R_G, N_G)
+    res = NM_SOLVER.run(x0, y, R_G, N_G)
+    return res.params, int(res.state.iter_num)
+
+def run_nm_then_lbfgs(x0, y, R_G, N_G):
+    ta, nit = run_nelder_mead(x0, y, R_G, N_G)
+    if args.lbfgs_iter <= 0:
+        return ta, nit
+    f_nm = float(nlp_active(ta, y, R_G, N_G))
+    res = LBFGS_SOLVER.run(ta, y, R_G, N_G)         
+    tb = res.params
+    f_lb = float(nlp_active(tb, y, R_G, N_G))
+    ok = bool(jnp.all(jnp.isfinite(tb))) and onp.isfinite(f_lb) and f_lb < f_nm
+    print(f"[lbfgs] NM {f_nm:.6e} -> LBFGS {f_lb:.6e}  "
+          f"({int(res.state.iter_num)} iters)  {'accepted' if ok else 'REJECTED, keeping NM'}")
+    return (tb if ok else ta), nit + int(res.state.iter_num)
 
 PARAM_BLOCKS = ["u1u1", "u1u2", "u2u2", "u1p", "u2p", "pp"]
 
-def _arr_hash(*arrays):
-    """Content hash of point sets - catches a moved collocation grid that
-    a shape-only check would miss."""
-    h = hashlib.sha256()
-    for A in arrays:
-        h.update(onp.ascontiguousarray(onp.asarray(A), dtype=onp.float64).tobytes())
-    return h.hexdigest()[:16]
-
+def err_stats(P, F, good, rel_floor=args.rel_floor):
+    """min/max/mean of |P-F| and of |P-F|/|F| over `good` points.
+    Relative error skips points where |F| is tiny (u_y crosses zero, u_x -> 0
+    near walls), otherwise max/mean are dominated by division by ~0."""
+    absE = onp.abs(P - F)
+    ab = absE[good]
+    with onp.errstate(invalid="ignore"):
+        ok = good & (onp.abs(F) >= rel_floor * onp.nanmax(onp.abs(F[good])))
+    r = absE[ok] / onp.abs(F[ok])
+    nan = float("nan")
+    return dict(abs_min=float(ab.min()) if ab.size else nan,
+                abs_max=float(ab.max()) if ab.size else nan,
+                abs_mean=float(ab.mean()) if ab.size else nan,
+                rel_min=float(r.min()) if r.size else nan,
+                rel_max=float(r.max()) if r.size else nan,
+                rel_mean=float(r.mean()) if r.size else nan)
 
 def config_fingerprint(R_G0):
     """Hash everything that changes the optimum. A cache keyed only on a
@@ -563,36 +653,18 @@ def config_fingerprint(R_G0):
         "optimizer": "nelder-mead",
         "nm_iter": int(args.nm_iter), "tol": float(args.tol),
         "theta_init": [float(v) for v in theta_init],
-        "points_hash": _arr_hash(R_u_train, R_dSu1, R_dSu2, R_sp, R_G0, R_s),
-        "n_artificial": int(args.n_artificial),
+        "points_hash": cache.arr_hash(R_u_train, R_dSu1, R_dSu2, R_sp, R_G0, R_s),
         "n_candidate": int(args.n_candidate),
         "zero_u-p": bool(args.zero_up),
+        "noise_G": "diag(Sigma_prev)",
+        "propagate": bool(PROPAGATE),
+        "active_idx": [int(i) for i in ACTIVE_IDX],
     }
-    h = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:16]
-    return h, cfg
-
-
-def load_cache(fingerprint):
-    if not CACHE_PATH.exists():
-        return None
-    d = onp.load(CACHE_PATH, allow_pickle=False)
-    if str(d["fingerprint"]) != fingerprint:
-        print("[cache] fingerprint mismatch (config changed) -> refitting")
-        return None
-    th = jnp.asarray(d["theta"])
-    if th.shape != theta_init.shape:
-        print(f"[cache] parameter count changed ({th.shape} vs {theta_init.shape}) -> refitting")
-        return None
-    return th
-
-
-def save_cache(fingerprint, theta, value):
-    onp.savez(CACHE_PATH,
-              theta=onp.asarray(theta),
-              fingerprint=onp.asarray(fingerprint),
-              value=onp.asarray(float(value)))
-    print(f"[cache] wrote {CACHE_PATH}")
-
+    if args.lbfgs_iter > 0:
+        cfg["optimizer"] = "nelder-mead+lbfgs"
+        cfg["lbfgs_iter"] = int(args.lbfgs_iter)
+        cfg["lbfgs_tol"] = float(args.lbfgs_tol)
+    return cache.fingerprint(cfg), cfg
 
 def report_theta(theta):
     print(f"  {'block':<6}{'gamma':>9}{'lx':>9}{'ly':>9}")
@@ -603,6 +675,7 @@ def report_theta(theta):
         note = ""
         if min(lx, ly) < 0.125:  note = "  <- below f-grid spacing"
         if max(lx, ly) > 1.0:    note = "  <- exceeds channel height"
+        if i in DEAD_BLOCKS:     note = "  (unused: --zero-up)"
         print(f"  {name:<6}{g:>9.3f}{lx:>9.3f}{ly:>9.3f}{note}")
 
 # ---- test points: a grid inside the channel -------------------------------
@@ -627,23 +700,6 @@ XX, EE = jnp.meshgrid(x_line, eta_line, indexing="ij")
 YY = EE * width(XX)
 R_test = jnp.stack([XX.ravel(), YY.ravel()], axis=-1)
 
-key = jrd.PRNGKey(args.artificial_seed)
-key, k0 = jrd.split(key)
-R_G = sample_artificial(args.n_artificial, k0, fresh=args.fresh_points)
- 
-fp, cfg = config_fingerprint(R_G)
-print(f"[config] fingerprint {fp}")
-print(f"[config] dt={Δt}  n_loop={args.n_loop}  n_artificial={args.n_artificial}"
-      f"  ntrain={n_train(R_G)}  dt*F_x={float(Δt/ρ*FBODY[0]):.4f}"
-      f"  sqrt(eta*dt/rho)={onp.sqrt(η*Δt/ρ):.3f}")
-if args.fixed_points:
-    print("[config] fixed artificial-data locations -> K factorized once")
-elif args.fresh_points:
-    print("[config] fresh uniform artificial-data locations each step")
-else:
-    print("[config] artificial data resampled from the collocation grid each step")
-
-
 row_u1 = [k_uu[0][0], k_uu[0][1], Sp(k_uu[0][0]), Sp(k_uu[0][1]),
           Sp(k_up[0]),  k_uG(0, 0), k_uG(0, 1), k_us(0)]
 
@@ -655,6 +711,14 @@ row_p  = [k_pu[0],     k_pu[1],    Sp(k_pu[0]),   Sp(k_pu[1]),
 
 ROWS = {"u1": row_u1, "u2": row_u2, "p": row_p}
 KSTAR = {"u1": k_uu[0][0], "u2": k_uu[1][1], "p": k_pp}
+
+def build_Kss_joint(theta, R_star):
+    """Prior covariance of the joint (u1,u2) field at R_star -> (2n, 2n)."""
+    K11 = kmat(k_uu[0][0])(R_star, R_star, theta)
+    K12 = kmat(k_uu[0][1])(R_star, R_star, theta)
+    K21 = kmat(k_uu[1][0])(R_star, R_star, theta)
+    K22 = kmat(k_uu[1][1])(R_star, R_star, theta)
+    return jnp.block([[K11, K12], [K21, K22]])
 
 def build_K_star_obs(theta, R_star, star, R):
     """Q, shape (len(R_star), ntrain). Columns follow `blocks` order."""
@@ -668,20 +732,45 @@ def prior_var_diag(theta, R_star, star):
     return jax.vmap(lambda r: k(r, r, theta))(R_star)
 
 @partial(jax.jit, static_argnames=("star",))
-def predict(Lc,theta, y,R_star,R_G, star="u1"):
-    Q  = build_K_star_obs(theta, R_star, star,R_G)
-
+def predict_diag(Lc, theta, y, R_star, R_G, star, M_block, idx_G):
+    """Marginal mean/std at R_star, including the propagated-uncertainty
+    correction  diag(Q K^-1 M K^-1 Q^T)."""
+    Q  = build_K_star_obs(theta, R_star, star, R_G)
     alpha = solve_triangular(Lc.T, solve_triangular(Lc, y, lower=True), lower=False)
     mean  = Q @ alpha                                    # (n_star,)
 
-    V    = solve_triangular(Lc, Q.T, lower=True)         # (ntrain, n_star)
-    var  = prior_var_diag(theta, R_star, star) - jnp.sum(V**2, axis=0)
-    std  = jnp.sqrt(jnp.clip(var, 0.0))
+    V   = solve_triangular(Lc, Q.T, lower=True)           # K^-1/2 Q^T, (ntrain, n_star)
+    var = prior_var_diag(theta, R_star, star) - jnp.sum(V**2, axis=0)
+
+    W = solve_triangular(Lc.T, V, lower=False)             # K^-1 Q^T, (ntrain, n_star)
+    C = W[idx_G, :]                                        # (2n_G, n_star)
+    var = var + jnp.sum(C * (M_block @ C), axis=0)
+
+    std = jnp.sqrt(jnp.clip(var, 0.0))
     return mean, std
 
-###
+@jax.jit
+def predict_joint(Lc, theta, y, R_star, R_G, M_block, idx_G):
+    """Joint (u1,u2) mean and FULL covariance at R_star. Used to seed the
+    NEXT step's Sigma^{t-1,t-1} (fed back in as M_block)."""
+    n = R_star.shape[0]
+    Q1 = build_K_star_obs(theta, R_star, "u1", R_G)
+    Q2 = build_K_star_obs(theta, R_star, "u2", R_G)
+    Q  = jnp.concatenate([Q1, Q2], axis=0)                 # (2n, ntrain)
 
-# ==================================================================== time loop
+    alpha = solve_triangular(Lc.T, solve_triangular(Lc, y, lower=True), lower=False)
+    mean  = Q @ alpha
+
+    Kss = build_Kss_joint(theta, R_star)
+    V   = solve_triangular(Lc, Q.T, lower=True)
+    cov = Kss - V.T @ V
+
+    W = solve_triangular(Lc.T, V, lower=False)
+    C = W[idx_G, :]                                        # (2n_G, 2n)
+    cov = cov + C.T @ (M_block @ C)
+
+    cov = 0.5 * (cov + cov.T)                             
+    return mean[:n], mean[n:], cov
  
 key = jrd.PRNGKey(args.artificial_seed)
 key, k0 = jrd.split(key)
@@ -702,48 +791,65 @@ else:
 # ---- initial condition: fluid at rest -------------------------------------
 u1_prev = jnp.zeros(R_G.shape[0])
 u2_prev = jnp.zeros(R_G.shape[0])
- 
+
+idx_G = g_index(R_G)
+Sigma_prev = jnp.zeros((idx_G.shape[0], idx_G.shape[0]))   # Sigma^{0,0} = 0 (exact rest)
+
+print(f"[config] zero_up={args.zero_up}: Nelder-Mead over "
+      f"{ACTIVE_IDX.size}/{theta_init.shape[0]} hyperparameters")
+print(f"[config] K = Raissi eq.(12): boundary noise 0, G noise = diag(Sigma^(n-1)), "
+      f"eps_jitter = {EPS_JITTER:g}   propagation term (eq.13) = {PROPAGATE}")
+if PROPAGATE:
+    print("[warn] Sigma^{n-1} is in K AND in the propagation term -> counted twice")
+
 # ---- fit theta once against the first step --------------------------------
 y = make_y(u1_prev, u2_prev)
-obj = jax.jit(partial(neg_log_posterior, y=y, R_G=R_G))
- 
+N_G = artificial_noise(Sigma_prev)
+obj = lambda ta, y=y, R_G=R_G, N_G=N_G: nlp_active(ta, y, R_G, N_G) 
 final_params = None
 if not args.fit and not args.no_cache:
-    final_params = load_cache(fp)
+    final_params = cache.load_theta(CACHE_PATH, fp, theta_init.shape)
     if final_params is not None:
+        final_params = jnp.asarray(final_params)
         print(f"[cache] loaded theta (skipping optimization)")
  
 if final_params is None:
-    print(f"Initial value: {float(obj(theta_init)):.6e}", flush=True)
+    ta0 = theta_init[ACTIVE_IDX]
+    print(f"Initial value: {float(obj(ta0)):.6e}", flush=True)
     t0 = time.time()
-    final_params, nit = run_nelder_mead(theta_init, obj,
-                                        maxiter=args.nm_iter, tol=args.tol)
-    print(f"Final value:   {float(obj(final_params)):.6e}  "
+    ta, nit = run_nm_then_lbfgs(ta0, y, R_G, N_G)
+    final_params = expand_theta(ta)
+    print(f"Final value:   {float(obj(ta)):.6e}  "
           f"[{time.time()-t0:.0f}s, {nit} iters]")
     if not args.no_cache:
-        save_cache(fp, final_params, obj(final_params))
+        cache.save_theta(CACHE_PATH, fp, final_params, obj(ta))
+
  
 print("\n[theta] FROZEN for the whole march" if not args.refit_every_step
-      else "\n[theta] refit at every step")
+      else "\n[theta] refit at every step (warm start from the previous step)")
 report_theta(final_params)
  
 # ---- march ----------------------------------------------------------------
 history = []          # per-step diagnostics
 Lc_cached = None
 
-# N evenly spaced snapshots for the evolution plot, N = args.n_snap
-SNAP_STEPS = sorted({max(1, int(round(k * args.n_loop / args.n_snap)))
+# N evenly spaced snapshots for the evolution/profile plots, ending at --t-stop
+# (the march itself keeps running to --n-loop)
+N_STOP = min(args.n_loop, int(round(args.t_stop / Δt)))
+SNAP_STEPS = sorted({max(1, int(round(k * N_STOP / args.n_snap)))
                      for k in range(1, args.n_snap + 1)})
-snapshots = []        # (t, U1, U2) captured at those steps
+snapshots = []        # (step, t, U1, U2, S1, S2) captured at those steps
 print(f"[config] evolution snapshots at steps {SNAP_STEPS} "
       f"(t = {', '.join(f'{s*Δt:.3f}' for s in SNAP_STEPS)})")
 
 print(f"\n{'step':>5}{'t':>8}{'ux_max':>11}{'ux_ctr':>11}{'ux_wall':>11}"
-      f"{'uy_absmax':>11}{'|du|':>11}{'std_max':>10}{'sec':>7}")
+      f"{'uy_absmax':>11}{'|du|':>11}"
+      f"{'2sig_ux':>10}{'cov_ux':>9}{'2sig_uy':>10}{'cov_uy':>9}{'sec':>7}")
 
 u1_test_prev = onp.zeros(NX*NY)
 
-F1_test = None
+F1_test = F2_test = None
+
 if args.fem:
     f1, f2, fpres = fem_stokes.get(
         onp.asarray(R_test), OUTDIR / "fem_reference.npz", refit=args.fem_refit,
@@ -751,68 +857,130 @@ if args.fem:
         eta=float(η), body_force_x=float(FBODY[0]),
         nx=args.fem_nx, ny=args.fem_ny)
     F1_test = onp.asarray(f1).reshape(NX, NY)
+    F2_test = onp.asarray(f2).reshape(NX, NY)
     fem_good = onp.isfinite(F1_test)
     print(f"[fem] steady reference: u_x max {F1_test[fem_good].max():.5f}, "
           f"centreline {F1_test[:, NY//2][onp.isfinite(F1_test[:, NY//2])].mean():.5f}")
-    
+# fem_steps = sorted(set(SNAP_STEPS) | set(range(5, args.n_loop + 1, 5)))
+
+fem_march = None
+if args.fem:
+    fem_steps_all = list(range(1, args.n_loop + 1))
+    fem_march = fem_stokes.get_unsteady(
+        onp.asarray(R_test), fem_steps_all,
+        OUTDIR / "fem_unsteady_reference.npz", refit=args.fem_refit,
+        L=float(L), a=float(a), avg_width=float(avg_width),
+        eta=float(η), rho=float(ρ), body_force_x=float(FBODY[0]),
+        dt=float(Δt), nx=args.fem_nx, ny=args.fem_ny)
+
 for n in range(1, args.n_loop + 1):
+    
     t_wall = time.time()
 
-    # 1) observation vector for this step
-    y = make_y(u1_prev, u2_prev)
+    # 1) observations + eq.(12) noise for this step
+    y      = make_y(u1_prev, u2_prev)
+    N_G    = artificial_noise(Sigma_prev)
+    M_prop = Sigma_prev if PROPAGATE else jnp.zeros_like(Sigma_prev)
 
-    # 2) optionally refit theta (paper warm-starts from the previous optimum)
+    # 2) refit theta, warm-started from the previous step's optimum
     if args.refit_every_step and n > 1:
-        obj_n = jax.jit(partial(neg_log_posterior, y=y, R_G=R_G))
-        final_params, _ = run_nelder_mead(final_params, obj_n,
-                                          maxiter=args.nm_iter, tol=args.tol)
+        
+        ta, _ = run_nelder_mead(final_params[ACTIVE_IDX], y, R_G, N_G)
+        final_params = expand_theta(ta, final_params)
         print(onp.asarray(final_params))
-    # 3) factorize. Reused only when the artificial-data locations are frozen.
-    if args.fixed_points and Lc_cached is not None:
-        Lc = Lc_cached
-    else:
-        Lc = factorize(final_params, R_G)
-        if args.fixed_points:
-            Lc_cached = Lc
+    # 3) factorize. K changes every step (N_G = diag(Sigma_prev)), so no caching.
+    Lc = factorize(final_params, R_G, N_G)
+    if not bool(jnp.all(jnp.isfinite(Lc))):
+        raise FloatingPointError(f"Cholesky failed at step {n}; "
+                                 f"theta = {onp.asarray(final_params)}")
 
-    # 4) posterior on the test grid (for plots / diagnostics)
-    u1_mean, u1_std = predict(Lc, final_params, y, R_test, R_G, "u1")
-    u2_mean, u2_std = predict(Lc, final_params, y, R_test, R_G, "u2")
-    p_mean,  p_std  = predict(Lc, final_params, y, R_test,  R_G, "p")
+    # 4) posterior on the test grid (for plots / diagnostics), including
+    #    the propagated-uncertainty correction from Sigma_prev / M
+    u1_mean, u1_std = predict_diag(Lc, final_params, y, R_test, R_G, "u1", M_prop, idx_G)
+    u2_mean, u2_std = predict_diag(Lc, final_params, y, R_test, R_G, "u2", M_prop, idx_G)
+    p_mean,  p_std  = predict_diag(Lc, final_params, y, R_test, R_G, "p",  M_prop, idx_G)
 
-    # 5) draw the NEXT artificial-data locations, then evaluate the posterior
+    # 5) draw the NEXT artificial-data locations, then evaluate the JOINT
+    #    posterior there (mean + full covariance) -> becomes next Sigma_prev
     key, kn = jrd.split(key)
     R_G_next = (R_G if args.fixed_points
                 else sample_artificial(args.n_artificial, kn, fresh=args.fresh_points))
 
-    u1_next, _ = predict(Lc, final_params, y, R_G_next, R_G, "u1")
-    u2_next, _ = predict(Lc, final_params, y, R_G_next, R_G, "u2")
+    u1_next, u2_next, Sigma_next = predict_joint(
+        Lc, final_params, y, R_G_next, R_G, M_prop, idx_G)
 
     # ---- diagnostics
     U1 = onp.asarray(u1_mean).reshape(NX, NY)
     U2 = onp.asarray(u2_mean).reshape(NX, NY)
+    S1 = onp.asarray(u1_std).reshape(NX, NY)
+    S2 = onp.asarray(u2_std).reshape(NX, NY)
     du = float(onp.abs(onp.asarray(u1_mean) - u1_test_prev).max())
     u1_test_prev = onp.asarray(u1_mean)
     t_now = n * Δt
 
+    def _uncertainty_stats(S, comp_name):
+        i_max = int(onp.argmax(S))
+        x_max, y_max = (float(v) for v in onp.asarray(R_test)[i_max])
+        return {
+            f"twosig_max_{comp_name}":  float(2.0 * S.ravel()[i_max]),
+            f"twosig_mean_{comp_name}": float(2.0 * S.mean()),
+            f"twosig_x_{comp_name}":    x_max,
+            f"twosig_y_{comp_name}":    y_max,
+        }
+
+    diag = dict(step=n, t=t_now,
+               ux_max=U1.max(), ux_ctr=float(U1[:, NY//2].mean()),
+               ux_wall=float(U1[:, 0].mean()),
+               uy_absmax=float(onp.abs(U2).max()), dmax=du,
+               std_max=float(S1.max()))
+    diag.update(_uncertainty_stats(S1, "ux"))
+    diag.update(_uncertainty_stats(S2, "uy"))
+    # ---- coverage: fraction of points where the TRUE (FEM) error at this
+    # same step falls within the model's own 95% band -- separately for
+    # u_x and u_y, since they can be calibrated very differently (u_y is
+    # the small, secondary component, so its relative error -- and
+    # plausibly its calibration -- behaves differently from u_x).
+    cov_ux_str = cov_uy_str = "     n/a"
+    if fem_march is not None and n in fem_march:
+        f1n, f2n, _ = fem_march[n]
+        F1n = onp.asarray(f1n).reshape(NX, NY)
+        F2n = onp.asarray(f2n).reshape(NX, NY)
+
+        good_x = fem_good & onp.isfinite(U1) & onp.isfinite(F1n)
+        abs_err_x = onp.abs(U1 - F1n)
+        cov_x = float((abs_err_x[good_x] <= (2.0*S1)[good_x]).mean())
+        diag["coverage_95_ux"]     = cov_x
+        diag["mean_abs_err_ux"]    = float(abs_err_x[good_x].mean())
+        cov_ux_str = f"{100*cov_x:7.1f}%"
+        for k_, v_ in err_stats(U1, F1n, good_x).items():
+            diag[f"{k_}_ux"] = v_
+
+        good_y = fem_good & onp.isfinite(U2) & onp.isfinite(F2n)
+        abs_err_y = onp.abs(U2 - F2n)
+        cov_y = float((abs_err_y[good_y] <= (2.0*S2)[good_y]).mean())
+        diag["coverage_95_uy"]     = cov_y
+        diag["mean_abs_err_uy"]    = float(abs_err_y[good_y].mean())
+        cov_uy_str = f"{100*cov_y:7.1f}%"
+        for k_, v_ in err_stats(U2, F2n, good_y).items():
+            diag[f"{k_}_uy"] = v_
+
     print(f"{n:>5}{t_now:>8.3f}{U1.max():>11.5f}{U1[:, NY//2].mean():>11.5f}"
-          f"{U1[:, 0].mean():>11.2e}{onp.abs(U2).max():>11.5f}{du:>11.2e}"
-          f"{float(u1_std.max()):>10.2e}{time.time()-t_wall:>7.1f}", flush=True)
+          f"{diag['twosig_max_ux']:>10.2e}{cov_ux_str:>9}"
+          f"{diag['twosig_max_uy']:>10.2e}{cov_uy_str:>9}"
+          f"{time.time()-t_wall:>7.1f}", flush=True)
 
-    history.append(dict(step=n, t=t_now,
-                        ux_max=U1.max(), ux_ctr=float(U1[:, NY//2].mean()),
-                        ux_wall=float(U1[:, 0].mean()),
-                        uy_absmax=float(onp.abs(U2).max()), dmax=du,
-                        std_max=float(u1_std.max())))
+    history.append(diag)
 
-    # capture snapshot for the evolution figure -- THIS is the line that was missing
+    # capture snapshot for the evolution figure
+    if F1_test is not None:
+        good = fem_good & onp.isfinite(U1)
+        rel = float(onp.linalg.norm(U1[good] - F1_test[good])
+                    / onp.linalg.norm(F1_test[good]))
+        history[-1]["fem_rel_l2"] = rel
     if n in SNAP_STEPS:
-        snapshots.append((n, t_now, U1.copy(), U2.copy()))
+        snapshots.append((n, t_now, U1.copy(), U2.copy(), S1.copy(), S2.copy()))
         if F1_test is not None:
-            good = fem_good & onp.isfinite(U1)
-            rel = onp.linalg.norm(U1[good] - F1_test[good]) / onp.linalg.norm(F1_test[good])
             print(f"      [fem] t={t_now:.3f}  rel L2 vs steady = {rel:.4f}")
-            history[-1]["fem_rel_l2"] = rel
     last = (n == args.n_loop)
     if last or (args.plot_every and n % args.plot_every == 0):
         ctx = plotting.PlotCtx(
@@ -830,30 +998,18 @@ for n in range(1, args.n_loop + 1):
     onp.savez(OUTDIR / f"state_t{n:04d}.npz",
               t=t_now, theta=onp.asarray(final_params),
               u1=U1, u2=U2, p=onp.asarray(p_mean).reshape(NX, NY),
-              u1_std=onp.asarray(u1_std).reshape(NX, NY),   # fixed typo: was u1_stdtd
+              u1_std=onp.asarray(u1_std).reshape(NX, NY),
               R_G=onp.asarray(R_G),
               u1_artificial=onp.asarray(u1_next),
-              u2_artificial=onp.asarray(u2_next))
+              u2_artificial=onp.asarray(u2_next),
+              Sigma_diag_artificial=onp.asarray(jnp.diag(Sigma_next)),
+              noise_G_diag=onp.asarray(jnp.diag(N_G)))
 
-    # 6) hand off to the next step
-    u1_prev, u2_prev, R_G = u1_next, u2_next, R_G_next
-
+    # 6) hand off to the next step (Sigma_next carries the propagated
+    #    uncertainty forward, replacing the old "exact-value" assumption)
+    u1_prev, u2_prev, R_G, Sigma_prev = u1_next, u2_next, R_G_next, Sigma_next
 
 # ==================================================================== summary
-
-# if args.evolution:
-#     evolution_plot.plot_evolution(
-#         snapshots, OUTDIR / f"evolution_{fp}.png",
-#         XX=onp.asarray(XX), YY=onp.asarray(YY),
-#         L=float(L), a=float(a), avg_width=float(avg_width),
-#         cmap=args.evolution_cmap,
-#         share_rows=args.evolution_share_rows,
-#         title=(rf"velocity evolution, $\Delta t={Δt}$, backward Euler, "
-#                rf"{args.n_artificial} artificial points/step"))
-#     plt.close("all")
-# else:
-#     print("[evo] skipped (pass --evolution to write it, or run "
-#           "evolution_plot.py against the saved states)")
 
 t_hist  = onp.array([h["t"] for h in history])
 ctr     = onp.array([h["ux_ctr"] for h in history])
@@ -879,22 +1035,103 @@ fig.tight_layout()
 fig.savefig(OUTDIR / f"march_summary_{fp}.png", dpi=140, bbox_inches="tight")
 print(f"\n[plot] {OUTDIR / f'march_summary_{fp}.png'}")
 
+# ==================== (a) COVERAGE / CALIBRATION, ux & uy ====================
+# ==================== (a) UNCERTAINTY & COVERAGE, ux & uy ====================
+def _plot_calibration(comp_name, symbol):
+    if not any(f"coverage_95_{comp_name}" in h for h in history):
+        print(f"[unc] no FEM per-step data for {comp_name} -- skipped (run with --fem)")
+        return
+    t_cov = onp.array([h["t"] for h in history if f"coverage_95_{comp_name}" in h])
+    cov   = onp.array([h[f"coverage_95_{comp_name}"] for h in history
+                       if f"coverage_95_{comp_name}" in h])
+    twosig_max_h  = onp.array([h[f"twosig_max_{comp_name}"]  for h in history])
+    twosig_mean_h = onp.array([h[f"twosig_mean_{comp_name}"] for h in history])
+
+    # ---- figure 1: 2-sigma width vs time
+    fig, ax = plt.subplots(figsize=(7, 4.8))
+    ax.semilogy(t_hist, twosig_max_h,  "o-", label=rf"max $2\sigma$ ({symbol})")
+    ax.semilogy(t_hist, twosig_mean_h, "s-", ms=3, label=rf"mean $2\sigma$ ({symbol})")
+    ax.set_xlabel("$t$"); ax.set_ylabel(rf"$2\sigma({symbol[1:-1]})$")
+    ax.legend(); ax.grid(alpha=.3)
+    fig.tight_layout()                       # leaves room for the x-axis label
+    out = OUTDIR / f"uncertainty_2sigma_{comp_name}_{fp}.png"
+    fig.savefig(out, dpi=150); plt.close(fig)
+    print(f"[plot] {out}")
+
+    # ---- figure 2: coverage vs time
+    fig, ax = plt.subplots(figsize=(7, 4.8))
+    ax.plot(t_cov, 100*cov, "o-", color="tab:green")
+    ax.axhline(95.0, color="r", ls="--", lw=1.5, label="nominal 95%")
+    ax.set_ylim(0, 102)
+    ax.set_xlabel("$t$")
+    ax.set_ylabel(f"points within $2\\sigma$ of FEM  [%]  ({symbol})")
+    ax.legend(); ax.grid(alpha=.3)
+    fig.tight_layout()
+    out = OUTDIR / f"uncertainty_coverage_{comp_name}_{fp}.png"
+    fig.savefig(out, dpi=150); plt.close(fig)
+    print(f"[plot] {out}")
+
+_plot_calibration("ux", r"$u_x$")
+_plot_calibration("uy", r"$u_y$")
+
+# ==================== (b) MEAN ABS / REL ERROR vs TIME ====================
+def _plot_mean_error(kind, ylabel, fname):
+    hh = [h for h in history if f"{kind}_mean_ux" in h]
+    if not hh:
+        print(f"[err] no FEM data -> {kind} error plot skipped (run with --fem)")
+        return
+    t = onp.array([h["t"] for h in hh])
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.semilogy(t, [h[f"{kind}_mean_ux"] for h in hh], "o-", ms=3, label=r"$u_x$")
+    ax.semilogy(t, [h[f"{kind}_mean_uy"] for h in hh], "s-", ms=3, label=r"$u_y$")
+    ax.set_xlabel("$t$"); ax.set_ylabel(ylabel)
+    ax.legend(); ax.grid(alpha=0.3)
+    fig.tight_layout()
+    out = OUTDIR / f"{fname}_{fp}.png"
+    fig.savefig(out, dpi=150); plt.close(fig)
+    print(f"[plot] {out}")
+
+_plot_mean_error("abs", r"mean $|\mathrm{PIGP}-\mathrm{FEM}|$", "mean_abs_error")
+_plot_mean_error("rel", r"mean $|\mathrm{PIGP}-\mathrm{FEM}|/|\mathrm{FEM}|$", "mean_rel_error")
+# ===============================================================================
+
 onp.savez(OUTDIR / f"march_history_{fp}.npz",
           **{k: onp.array([h[k] for h in history]) for k in history[0]})
-
-fem_results = None
-if args.fem:
-    fem_results = fem_stokes.get_unsteady(
-        onp.asarray(R_test), SNAP_STEPS,
-        OUTDIR / "fem_unsteady_reference.npz", refit=args.fem_refit,
-        L=float(L), a=float(a), avg_width=float(avg_width),
-        eta=float(η), rho=float(ρ), body_force_x=float(FBODY[0]),
-        dt=float(Δt), nx=args.fem_nx, ny=args.fem_ny)
 
 evolution_plot.plot_evolution_vs_fem(
     snapshots, OUTDIR, XX=onp.asarray(XX), YY=onp.asarray(YY),
     L=float(L), a=float(a), avg_width=float(avg_width),
-    fem=fem_results, cmap=args.evolution_cmap, tag=fp, dt=float(Δt),
+    fem=fem_march, cmap=args.evolution_cmap, tag=fp, dt=float(Δt),
     n_artificial=args.n_artificial)
 
+evolution_plot.plot_uncertainty_evolution(
+    snapshots, OUTDIR, XX=onp.asarray(XX), YY=onp.asarray(YY),
+    L=float(L), a=float(a), avg_width=float(avg_width),
+    fem=fem_march, tag=f"ux_{fp}", comp=0, symbol=r"$u_x$")
+
+evolution_plot.plot_uncertainty_evolution(
+    snapshots, OUTDIR, XX=onp.asarray(XX), YY=onp.asarray(YY),
+    L=float(L), a=float(a), avg_width=float(avg_width),
+    fem=fem_march, tag=f"uy_{fp}", comp=1, symbol=r"$u_y$")
+
+if args.profiles:
+    evolution_plot.plot_profiles(
+        snapshots, OUTDIR,
+        XX=onp.asarray(XX), YY=onp.asarray(YY),
+        L=float(L), a=float(a), avg_width=float(avg_width),
+        x_ux=tuple(args.profile_x_ux), x_uy=tuple(args.profile_x_uy),
+        fem=fem_march, tag=fp,
+        n_times=args.profile_n_times)  
+
+if args.gif:
+    make_gif.build_state_gif(
+        OUTDIR, OUTDIR / f"evolution_{fp}.gif",
+        XX=onp.asarray(XX), YY=onp.asarray(YY),
+        L=float(L), a=float(a), avg_width=float(avg_width),
+        fps=args.gif_fps, dpi=args.gif_dpi, max_step=args.n_loop,
+        frames_dir=OUTDIR / "gif_frames")
+
+write_report(history, fp, args, OUTDIR,
+             n_active=ACTIVE_IDX.size, n_theta=theta_init.shape[0],
+             eps_jitter=EPS_JITTER, propagate=PROPAGATE)
 plt.show()

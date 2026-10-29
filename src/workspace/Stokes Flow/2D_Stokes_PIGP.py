@@ -42,7 +42,7 @@ parser.add_argument("--tol", type=float, default=1e-4)
 
 parser.add_argument("--sparse", action="store_true",
                     help="replace the no-slip wall points with N random interior "
-                         "velocity points sampled from the FEM solution (paper 3.3)")
+                         )
 parser.add_argument("--n-sparse", type=int, default=40)
 parser.add_argument("--sparse-seed", type=int, default=42)
 parser.add_argument("--sparse-margin", type=float, default=0.95,

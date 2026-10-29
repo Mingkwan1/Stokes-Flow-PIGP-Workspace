@@ -1,0 +1,30 @@
+#!/bin/sh
+#PJM -L rscgrp=share
+#PJM -L gpu=4
+#PJM -L elapse=12:00:00
+#PJM -g jh250081a
+#PJM -j
+#PJM -o logs/logs_20261013/%n.%j.out
+
+export PATH="/work/jh250081a/n15005/local/bin:$PATH"
+export UV_CACHE_DIR="/work/jh250081a/n15005/.cache/uv"
+export UV_PYTHON_INSTALL_DIR="/work/jh250081a/n15005/.local/share/uv/python"
+export UV_TOOL_DIR="/work/jh250081a/n15005/.local/share/uv/tools"
+
+mkdir -p "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" "$UV_TOOL_DIR"
+
+cd /work/jh250081a/n15005/Stokes-Flow-PIGP-Workspace
+
+REFIT_FLAG=""
+if [ "${REFIT:-1}" = "1" ]; then
+  REFIT_FLAG="--refit-every-step"
+fi
+
+GEOMETRY="${SHAPE:-sinusoidal}"
+
+uv run python ./src/workspace/main_unsteady_stokes_flow.py \
+  --profiles --evolution --fem --geometry "$GEOMETRY" --n-artificial "${ARTIFICIAL:-340}"\
+  --n-candidate 680 --n-loop "${NLOOP:-50}" --dt "${DT:-0.008}" --zero-up \
+  --nm-iter "${NMITER:-50}" $REFIT_FLAG --n-snap "${NSNAP:-3}" --tol "${TOL:-1e-3}" --profile-n-times 3 \
+  --lbfgs-iter "${LBFGS_ITER:-100}" --lbfgs-tol "${LBFGS_TOL:-1e-5}" \
+  --eps-jitter 1e-3 --gif 

@@ -1,10 +1,7 @@
 """
-Compare PIGP centreline u_x(t) against the analytical unsteady plane-Poiseuille
-solution (Eqs. 59-62), using the SAME physical parameters as the PIGP run.
-
 Usage:
-    python compare_pigp_analytical.py \
-        --history outputs/usf_dt0.05_10loops_270artificial_plates/march_history_<fp>.npz \
+    uv run python src/workspace/utils/compare_pigp_analytical.py 
+        --history src/workspace/outputs/concurrent_points_20261006/20261006_new_usf_0.008_100_340artificial_plates_nm_100_tol_0.001_fresh_points_False_refit_everystep_True_eps_0.001_zeroup_True/march_history_4c3f97ebec76f819.npz
         --eta 1.0 --rho 1.0 --avg-width 1.0 --dP -30 --L 2.5
 """
 
@@ -22,10 +19,10 @@ p.add_argument("--avg-width", type=float, required=True, help="channel height b,
 p.add_argument("--dP", type=float, required=True, help="pressure drop, matches PIGP DeltaP")
 p.add_argument("--L", type=float, required=True, help="channel length, matches PIGP L")
 p.add_argument("--N", type=int, default=400, help="number of Fourier modes")
-p.add_argument("--n-snap", type=int, default=5,
+p.add_argument("--n-snap", type=int, default=10,
                help="number of evenly-spaced snapshots to show (0 = use every "
                     "point in the history file)")
-p.add_argument("--out", default="pigp_vs_analytical.png")
+p.add_argument("--out", default="src/workspace/output_analysis/pigp_vs_analytical_plates_1008.png")
 args = p.parse_args()
 
 # ---- physical parameters, derived exactly as in the PIGP script -----------
@@ -33,7 +30,7 @@ b    = args.avg_width
 mu   = args.eta
 rho  = args.rho
 nu   = mu / rho
-dpdx = args.dP / args.L          # NOT dP directly -- this is the conversion PIGP uses internally (FBODY[0] = -dP/L)
+dpdx = args.dP / args.L          
 U    = 0.0                        # both walls stationary for Poiseuille
 
 print(f"[params] b={b}  mu={mu}  rho={rho}  nu={nu:.4f}  dp/dx={dpdx:.4f}")
@@ -42,7 +39,6 @@ print(f"[params] steady centreline u(b/2) = {-dpdx*b**2/(8*mu):.5f}  "
       f"<- should match your FEM 'steady reference' printout")
 
 
-# ---- analytical solution, Eqs. (59)-(62) -----------------------------------
 def u_steady(y, U, b, mu, dpdx):
     return y * U / b - (y / (2.0 * mu)) * dpdx * (b - y)
 
@@ -62,14 +58,11 @@ def u_analytical(y, t, U, b, mu, rho, dpdx, N=400):
     return u_steady(np.atleast_1d(y), U, b, mu, dpdx)[None, :] + transient
 
 
-# ---- load PIGP history ------------------------------------------------------
 d = np.load(args.history)
 t_pigp   = d["t"]
-ctr_pigp = d["ux_ctr"]         # PIGP centreline-row mean, from your print loop
+ctr_pigp = d["ux_ctr"]        
 
 if args.n_snap and args.n_snap < len(t_pigp):
-    # mirrors the PIGP script's own SNAP_STEPS rule (1-indexed steps ->
-    # 0-indexed array positions), so these line up with your evolution_*.png
     n_loop = len(t_pigp)
     steps = sorted({max(1, round(k * n_loop / args.n_snap)) for k in range(1, args.n_snap + 1)})
     idx = [s - 1 for s in steps]
@@ -88,14 +81,14 @@ for tt, cp, ca, re in zip(t_pigp, ctr_pigp, ctr_analytical, rel_err):
 
 # ---- plot -------------------------------------------------------------------
 fig, ax = plt.subplots(figsize=(6, 4.5))
-ax.plot(t_pigp, ctr_pigp,       "o-", label="PIGP")
-ax.plot(t_pigp, ctr_analytical, "s--", label="Analytical (Eqs. 59-62)")
-ax.axhline(-dpdx * b**2 / (8*mu), color="gray", ls=":", lw=1, label="steady value")
+ax.plot(t_pigp, ctr_pigp,       "o-", label="PIGP prediction")
+ax.plot(t_pigp, ctr_analytical, "s--", label="Analytical solution")
+ax.axhline(-dpdx * b**2 / (8*mu), color="gray", ls=":", lw=2, label="Steady value")
 ax.set_xlabel("$t$")
 ax.set_ylabel("centreline $u_x$")
-ax.set_title("PIGP vs analytical unsteady Poiseuille flow")
-ax.legend()
+ax.legend(fontsize=14, loc='lower right', bbox_to_anchor=(0.95, 0.1))
 ax.grid(alpha=0.3)
+ax.tick_params(direction='in')
 fig.tight_layout()
 fig.savefig(args.out, dpi=150)
 print(f"\n[plot] saved {args.out}")
