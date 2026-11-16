@@ -138,16 +138,31 @@ parser.add_argument("--gif-width", type=int, default=900)
 parser.add_argument("--gif-prefix", default="combined")
 parser.add_argument("--gif-dpi", type=int, default=100)
 
+# Sparse (Add on 2026/10/29)
+
+parser.add_argument("--obs-mode", choices=["wall", "sparse", "both"], default="wall",
+                    help="u-data in K: no-slip wall points, FEM sparse samples, or both")
+parser.add_argument("--n-obs", type=int, default=40, help="sparse FEM points per step")
+parser.add_argument("--obs-seed", type=int, default=42, help="seed for sparse locations")
+parser.add_argument("--obs-margin", type=float, default=0.9,
+                    help="sparse points stay inside this fraction of the half-width "
+                         "(FEM interpolator returns NaN at the wall)")
+parser.add_argument("--sigma-obs", type=float, default=0.0,
+                    help="noise std on sparse FEM samples (0 = noiseless)")
+parser.add_argument("--noise-seed", type=int, default=69,
+                    help="separate from --obs-seed: changing noise keeps locations")
+
 args = parser.parse_args()
 
 SPECIMEN = (
-    f"20261008_new_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
+    f"20261029_usf_{args.dt}_{args.n_loop}_{args.n_artificial}artificial_"
     f"{args.geometry}_nm_{args.nm_iter}_tol_{args.tol}_"
     f"fresh_points_{args.fresh_points}_"
     f"refit_everystep_{args.refit_every_step}"
     f"_eps_{args.eps_jitter}_zeroup_{args.zero_up}"
+    f"_obs_{args.obs_mode}_n{args.n_obs}_sobs_{args.sigma_obs}"
 )
-OUTDIR = Path(__file__).resolve().parent / "outputs"/ "concurrent_points_20261013" / SPECIMEN
+OUTDIR = Path(__file__).resolve().parent / "outputs"/ "concurrent_points_20261029" / SPECIMEN
 (OUTDIR / "plots" ).mkdir(parents=True, exist_ok=True)
 PLOT_PATH = CACHE_PATH = OUTDIR / "plots" 
 
@@ -189,6 +204,11 @@ MARGIN = 0.999
 
 EPS_JITTER = args.eps_jitter
 
+USE_WALL = args.obs_mode in ("wall", "both")
+USE_OBS  = args.obs_mode in ("sparse", "both")
+OBS_VAR  = args.sigma_obs**2
+R_EMPTY  = jnp.zeros((0, 2)) 
+
 ## 1.) velocity at bounday u_b (62 x 2 points)
 
 x_u1_b = jnp.linspace(0.0, L, 62)
@@ -205,8 +225,6 @@ u2_b = jnp.zeros_like(x_u2_b)
 R_wall = jnp.concatenate([R_u1, R_u2], axis=0)      # (124, 2)
 u_wall = jnp.zeros(R_wall.shape[0])
 
-
-R_u_train, u1_train, u2_train = R_wall, u_wall, u_wall
 
 ## 2.) Slip periodic velocity (15 x 2 points)
 
@@ -405,22 +423,25 @@ def kmat(k):
         return lambda R1, R2, t: jnp.zeros((R1.shape[0], R2.shape[0]))
     return jax.jit(jax.vmap(jax.vmap(k, (None, 0, None)), (0, None, None)))
 
-def make_blocks(R_G):
+def make_blocks(R_G, R_O):
     """Block layout. Only the G blocks move between time steps."""
-    return [("u1",  R_u_train),      # no-slip, u_x
-            ("u2",  R_u_train),      # no-slip, u_y
-            ("Su1", R_dSu1),         # periodicity, u_x
-            ("Su2", R_dSu2),         # periodicity, u_y
-            ("Sp",  R_sp),           # periodicity, p
-            ("G1",  R_G),            # backward-Euler momentum, x
-            ("G2",  R_G),            # backward-Euler momentum, y
-            ("s",   R_s)]            # continuity
+    b = []
+    if USE_WALL: b += [("u1w", "u1", R_wall), # no-slip, u_x
+                        ("u2w", "u2", R_wall)] # no-slip, u_y
+    if USE_OBS:  b += [("u1o", "u1", R_O),     # no-slip, u_x
+                        ("u2o", "u2", R_O)] # no-slip, u_y
+    return b + [("Su1", "Su1", R_dSu1), # periodicity, u_x
+                ("Su2", "Su2", R_dSu2), # periodicity, u_y
+                ("Sp", "Sp", R_sp),# periodicity, p
+                ("G1", "G1", R_G), # backward-Euler momentum, x
+                ("G2", "G2", R_G), # backward-Euler momentum, y
+                ("s", "s", R_s)] # continuity
 
-def block_slices(R_G):
+def block_slices(R_G, R_O):
     """Start/end offsets of each named block in the K / y ordering."""
     offsets = {}
     start = 0
-    for name, R in make_blocks(R_G):
+    for name, _, R in make_blocks(R_G, R_O):
         offsets[name] = (start, start + R.shape[0])
         start += R.shape[0]
     return offsets
@@ -456,17 +477,21 @@ kfn = {
     ("s","s"):   k_ss,
 }
 
-def build_K(theta,R):
-    blocks = make_blocks(R)
+def kblock(ki, Ri, kj, Rj, theta):
+    if (ki, kj) in kfn:
+        return kmat(kfn[(ki, kj)])(Ri, Rj, theta)
+    return kmat(kfn[(kj, ki)])(Rj, Ri, theta).T
+
+def build_K(theta,R_G, R_O):
+    blocks = make_blocks(R_G, R_O)
     n = len(blocks)
     rows = [[None]*n for _ in range(n)]
     for i in range(n):
         for j in range(i, n):
-            name_i, R_i = blocks[i]
-            name_j, R_j = blocks[j]
-            k = kfn[(name_i, name_j)]
-            rows[i][j] = kmat(k)(R_i, R_j, theta)
-            rows[j][i] = rows[i][j].T       
+            _, ki, Ri = blocks[i]
+            _, kj, Rj = blocks[j]
+            rows[i][j] = kblock(ki, Ri, kj, Rj, theta)
+            rows[j][i] = rows[i][j].T
     return jnp.block(rows)
 
 
@@ -486,23 +511,18 @@ def expand_theta(theta_active, template=theta_init):
     """Active vector -> full 18-vector. Dead entries keep the template value;
     they are never read, because k_up = k_pu = None under --zero-up."""
     return template.at[ACTIVE_IDX].set(theta_active)
-def make_y(u1_prev, u2_prev):
-    """u{1,2}_prev: u^{n-1} evaluated at R_G1 / R_G2."""
-    return jnp.concatenate([
-        jnp.zeros(R_u_train.shape[0]),        # no-slip u_x
-        jnp.zeros(R_u_train.shape[0]),        # no-slip u_y
-        s_u_1, s_u_2, s_p,                    # periodicity (all zero)
-        u1_prev + Δt * FBODY[0],              # G1
-        u2_prev + Δt * FBODY[1],              # G2
-        jnp.zeros(N_s),                       # continuity
-    ])
 
-# t = 0: fluid at rest
-y0 = make_y(jnp.zeros(R_G1.shape[0]), jnp.zeros(R_G2.shape[0]))
+def make_y(u1_prev, u2_prev, u1_o, u2_o):
+    parts = []
+    if USE_WALL: parts += [jnp.zeros(R_wall.shape[0]), jnp.zeros(R_wall.shape[0])]
+    if USE_OBS:  parts += [u1_o, u2_o]
+    parts += [s_u_1, s_u_2, s_p,
+              u1_prev + Δt * FBODY[0], u2_prev + Δt * FBODY[1],
+              jnp.zeros(N_s)]
+    return jnp.concatenate(parts)
 
-def n_train(R_G):
-    return (2*R_u_train.shape[0] + R_dSu1.shape[0] + R_dSu2.shape[0]
-            + R_sp.shape[0] + 2*R_G.shape[0] + R_s.shape[0])
+def n_train(R_G, R_O):
+    return sum(R.shape[0] for _, _, R in make_blocks(R_G, R_O))
 
 
 def inspect_K_blocks(theta,R):
@@ -524,29 +544,32 @@ def inspect_K_blocks(theta,R):
 
 # inspect_K_blocks(theta_init)
 
-def g_index(R_G):
+def g_index(R_G, R_O):
     """Rows of K belonging to G1 then G2 (same order as Sigma: [u1 pts; u2 pts])."""
-    o = block_slices(R_G)
+    o = block_slices(R_G, R_O)
     return jnp.concatenate([jnp.arange(*o["G1"]), jnp.arange(*o["G2"])])
 
 
-def build_K_train(theta, R_G, N_G):
+def build_K_train(theta, R_G, R_O, N_G):
     """
         K = [ K_bb + sigma_n^2 I      K_b,n-1                    ]
             [                         K_n-1,n-1 + Sigma_{n-1}    ]
     b   = time-n constraints (wall, periodicity, continuity): sigma_n = 0.
     n-1 = artificial data (G1, G2): per-point variance of u^{n-1}.
     eps^2 I is added only if --eps-jitter > 0."""
-    K = build_K(theta, R_G)
+    K = build_K(theta, R_G, R_O)
     if EPS_JITTER > 0:
-        K = K + (EPS_JITTER**2) * jnp.eye(n_train(R_G))
-    ig = g_index(R_G)
+        K = K + (EPS_JITTER**2) * jnp.eye(K.shape[0])
+    if USE_OBS and OBS_VAR > 0:
+        o = block_slices(R_G, R_O)
+        io = jnp.concatenate([jnp.arange(*o["u1o"]), jnp.arange(*o["u2o"])])
+        K = K.at[io, io].add(OBS_VAR)        # paired indices -> diagonal only
+    ig = g_index(R_G, R_O)
     return K.at[jnp.ix_(ig, ig)].add(N_G)
 
-
-def neg_log_posterior(theta, y, R_G, N_G):
+def neg_log_posterior(theta, y, R_G, R_O, N_G):
     ntrain = y.shape[0]
-    Lc = jnp.linalg.cholesky(build_K_train(theta, R_G, N_G))
+    Lc = jnp.linalg.cholesky(build_K_train(theta, R_G, R_O, N_G))
     v  = solve_triangular(Lc, y, lower=True)
     jeffreys_nlp = jnp.sum(theta[ACTIVE_IDX])         
     val = (0.5*jnp.dot(v, v) + jnp.sum(jnp.log(jnp.diag(Lc)))
@@ -555,14 +578,14 @@ def neg_log_posterior(theta, y, R_G, N_G):
 
 
 @jax.jit
-def nlp_active(theta_active, y, R_G, N_G):
+def nlp_active(theta_active, y, R_G, R_O, N_G):
     """Objective over the ACTIVE hyperparameters only."""
-    return neg_log_posterior(expand_theta(theta_active), y, R_G, N_G)
+    return neg_log_posterior(expand_theta(theta_active), y, R_G, R_O, N_G)
 
 
 @jax.jit
-def factorize(theta, R_G, N_G):
-    return jnp.linalg.cholesky(build_K_train(theta, R_G, N_G))
+def factorize(theta, R_G, R_O, N_G):
+    return jnp.linalg.cholesky(build_K_train(theta, R_G, R_O, N_G))
 
 def artificial_noise(Sigma_prev):
     """sigma_{n-1}^2 of eq.(12), per artificial point = diag(Sigma^{n-1,n-1}).
@@ -573,11 +596,11 @@ def artificial_noise(Sigma_prev):
 PROPAGATE = (args.propagate == "on")
 
 
-def _nlp_value_zero_grad(theta_active, y, R_G, N_G):
+def _nlp_value_zero_grad(theta_active, y, R_G, R_O, N_G):
     """jaxopt.ScipyMinimize always requests (value, grad) with jac=True.
     Nelder-Mead never uses the gradient, so return zeros instead of paying
     for a backward pass through the Cholesky at every evaluation."""
-    return nlp_active(theta_active, y, R_G, N_G), jnp.zeros_like(theta_active)
+    return nlp_active(theta_active, y, R_G, R_O, N_G), jnp.zeros_like(theta_active)
 
 
 _NM_STATE = {"it": 0, "data": None}
@@ -597,19 +620,19 @@ LBFGS_SOLVER = jaxopt.ScipyMinimize(
     fun=nlp_active, method="L-BFGS-B",
     tol=args.lbfgs_tol, maxiter=args.lbfgs_iter)
 
-def run_nelder_mead(x0, y, R_G, N_G):
-    _NM_STATE["it"], _NM_STATE["data"] = 0, (y, R_G, N_G)
-    res = NM_SOLVER.run(x0, y, R_G, N_G)
+def run_nelder_mead(x0, y, R_G, R_O, N_G):
+    _NM_STATE["it"], _NM_STATE["data"] = 0, (y, R_G, R_O, N_G)
+    res = NM_SOLVER.run(x0, y, R_G, R_O, N_G)
     return res.params, int(res.state.iter_num)
 
-def run_nm_then_lbfgs(x0, y, R_G, N_G):
-    ta, nit = run_nelder_mead(x0, y, R_G, N_G)
+def run_nm_then_lbfgs(x0, y, R_G, R_O, N_G):
+    ta, nit = run_nelder_mead(x0, y, R_G, R_O, N_G)
     if args.lbfgs_iter <= 0:
         return ta, nit
-    f_nm = float(nlp_active(ta, y, R_G, N_G))
-    res = LBFGS_SOLVER.run(ta, y, R_G, N_G)         
+    f_nm = float(nlp_active(ta, y, R_G, R_O, N_G))
+    res = LBFGS_SOLVER.run(ta, y, R_G, R_O, N_G)         
     tb = res.params
-    f_lb = float(nlp_active(tb, y, R_G, N_G))
+    f_lb = float(nlp_active(tb, y, R_G, R_O, N_G))
     ok = bool(jnp.all(jnp.isfinite(tb))) and onp.isfinite(f_lb) and f_lb < f_nm
     print(f"[lbfgs] NM {f_nm:.6e} -> LBFGS {f_lb:.6e}  "
           f"({int(res.state.iter_num)} iters)  {'accepted' if ok else 'REJECTED, keeping NM'}")
@@ -634,7 +657,7 @@ def err_stats(P, F, good, rel_floor=args.rel_floor):
                 rel_max=float(r.max()) if r.size else nan,
                 rel_mean=float(r.mean()) if r.size else nan)
 
-def config_fingerprint(R_G0):
+def config_fingerprint(R_G0, R_O0):
     """Hash everything that changes the optimum. A cache keyed only on a
     filename would silently return theta fitted for different physics."""
     cfg = {
@@ -649,11 +672,15 @@ def config_fingerprint(R_G0):
         "n_wall": int(R_wall.shape[0]),
         "n_dSu": int(R_dSu1.shape[0]), "n_Sp": int(R_sp.shape[0]),
         "blocks": BLOCK_NAMES,
-        "ntrain": int(n_train(R_G0)),
+        "ntrain": int(n_train(R_G0, R_O0)),
+        "points_hash": cache.arr_hash(R_wall, R_dSu1, R_dSu2, R_sp, R_G0, R_s,
+                                      *([R_obs_all] if USE_OBS else [])),
+        "obs_mode": args.obs_mode, "n_obs": int(args.n_obs),
+        "obs_seed": int(args.obs_seed), "obs_margin": float(args.obs_margin),
+        "sigma_obs": float(args.sigma_obs), "noise_seed": int(args.noise_seed),
         "optimizer": "nelder-mead",
         "nm_iter": int(args.nm_iter), "tol": float(args.tol),
         "theta_init": [float(v) for v in theta_init],
-        "points_hash": cache.arr_hash(R_u_train, R_dSu1, R_dSu2, R_sp, R_G0, R_s),
         "n_candidate": int(args.n_candidate),
         "zero_u-p": bool(args.zero_up),
         "noise_G": "diag(Sigma_prev)",
@@ -700,16 +727,23 @@ XX, EE = jnp.meshgrid(x_line, eta_line, indexing="ij")
 YY = EE * width(XX)
 R_test = jnp.stack([XX.ravel(), YY.ravel()], axis=-1)
 
-row_u1 = [k_uu[0][0], k_uu[0][1], Sp(k_uu[0][0]), Sp(k_uu[0][1]),
-          Sp(k_up[0]),  k_uG(0, 0), k_uG(0, 1), k_us(0)]
+# row_u1 = [k_uu[0][0], k_uu[0][1], Sp(k_uu[0][0]), Sp(k_uu[0][1]),
+#           Sp(k_up[0]),  k_uG(0, 0), k_uG(0, 1), k_us(0)]
 
-row_u2 = [k_uu[1][0], k_uu[1][1], Sp(k_uu[1][0]), Sp(k_uu[1][1]),
-          Sp(k_up[1]),  k_uG(1, 0), k_uG(1, 1), k_us(1)]
+# row_u2 = [k_uu[1][0], k_uu[1][1], Sp(k_uu[1][0]), Sp(k_uu[1][1]),
+#           Sp(k_up[1]),  k_uG(1, 0), k_uG(1, 1), k_us(1)]
 
-row_p  = [k_pu[0],     k_pu[1],    Sp(k_pu[0]),   Sp(k_pu[1]),
-          Sp(k_pp),     k_pG(0),    k_pG(1),      k_ps]
+# row_p  = [k_pu[0],     k_pu[1],    Sp(k_pu[0]),   Sp(k_pu[1]),
+#           Sp(k_pp),     k_pG(0),    k_pG(1),      k_ps]
 
-ROWS = {"u1": row_u1, "u2": row_u2, "p": row_p}
+ROW = {
+ "u1": dict(u1=k_uu[0][0], u2=k_uu[0][1], Su1=Sp(k_uu[0][0]), Su2=Sp(k_uu[0][1]),
+            Sp=Sp(k_up[0]), G1=k_uG(0, 0), G2=k_uG(0, 1), s=k_us(0)),
+ "u2": dict(u1=k_uu[1][0], u2=k_uu[1][1], Su1=Sp(k_uu[1][0]), Su2=Sp(k_uu[1][1]),
+            Sp=Sp(k_up[1]), G1=k_uG(1, 0), G2=k_uG(1, 1), s=k_us(1)),
+ "p":  dict(u1=k_pu[0], u2=k_pu[1], Su1=Sp(k_pu[0]), Su2=Sp(k_pu[1]),
+            Sp=Sp(k_pp), G1=k_pG(0), G2=k_pG(1), s=k_ps),
+}
 KSTAR = {"u1": k_uu[0][0], "u2": k_uu[1][1], "p": k_pp}
 
 def build_Kss_joint(theta, R_star):
@@ -720,22 +754,20 @@ def build_Kss_joint(theta, R_star):
     K22 = kmat(k_uu[1][1])(R_star, R_star, theta)
     return jnp.block([[K11, K12], [K21, K22]])
 
-def build_K_star_obs(theta, R_star, star, R):
+def build_K_star_obs(theta, R_star, star, R_G, R_O):
     """Q, shape (len(R_star), ntrain). Columns follow `blocks` order."""
-    cols = [kmat(k)(R_star, R, theta)
-            for k, (_, R) in zip(ROWS[star], make_blocks(R))]
-    return jnp.concatenate(cols, axis=1)
-
+    return jnp.concatenate([kmat(ROW[star][kind])(R_star, R, theta)
+                            for _, kind, R in make_blocks(R_G, R_O)], axis=1)
 def prior_var_diag(theta, R_star, star):
     """diag(K**) only - the full n_star x n_star matrix is never needed."""
     k = KSTAR[star]
     return jax.vmap(lambda r: k(r, r, theta))(R_star)
 
 @partial(jax.jit, static_argnames=("star",))
-def predict_diag(Lc, theta, y, R_star, R_G, star, M_block, idx_G):
+def predict_diag(Lc, theta, y, R_star, R_G, R_O, star, M_block, idx_G):
     """Marginal mean/std at R_star, including the propagated-uncertainty
     correction  diag(Q K^-1 M K^-1 Q^T)."""
-    Q  = build_K_star_obs(theta, R_star, star, R_G)
+    Q = build_K_star_obs(theta, R_star, star, R_G, R_O)
     alpha = solve_triangular(Lc.T, solve_triangular(Lc, y, lower=True), lower=False)
     mean  = Q @ alpha                                    # (n_star,)
 
@@ -750,12 +782,12 @@ def predict_diag(Lc, theta, y, R_star, R_G, star, M_block, idx_G):
     return mean, std
 
 @jax.jit
-def predict_joint(Lc, theta, y, R_star, R_G, M_block, idx_G):
+def predict_joint(Lc, theta, y, R_star, R_G, R_O, M_block, idx_G):
     """Joint (u1,u2) mean and FULL covariance at R_star. Used to seed the
     NEXT step's Sigma^{t-1,t-1} (fed back in as M_block)."""
     n = R_star.shape[0]
-    Q1 = build_K_star_obs(theta, R_star, "u1", R_G)
-    Q2 = build_K_star_obs(theta, R_star, "u2", R_G)
+    Q1 = build_K_star_obs(theta, R_star, "u1", R_G, R_O)
+    Q2 = build_K_star_obs(theta, R_star, "u2", R_G, R_O)
     Q  = jnp.concatenate([Q1, Q2], axis=0)                 # (2n, ntrain)
 
     alpha = solve_triangular(Lc.T, solve_triangular(Lc, y, lower=True), lower=False)
@@ -775,11 +807,42 @@ def predict_joint(Lc, theta, y, R_star, R_G, M_block, idx_G):
 key = jrd.PRNGKey(args.artificial_seed)
 key, k0 = jrd.split(key)
 R_G = sample_artificial(args.n_artificial, k0, fresh=args.fresh_points)
- 
-fp, cfg = config_fingerprint(R_G)
+
+# Inference using sparse input data
+
+k_noise = jrd.split(jrd.PRNGKey(args.noise_seed), args.n_loop)
+OBS, OBS_CLEAN = {}, {}
+
+if USE_OBS:
+    keys = jrd.split(jrd.PRNGKey(args.obs_seed), args.n_loop)
+    R_obs_all = jax.vmap(
+        lambda k: sample_uniform(args.n_obs, k, margin=args.obs_margin))(keys)   # (n_loop, n_obs, 2)
+    obs_fem = fem_stokes.get_unsteady(
+        onp.asarray(R_obs_all.reshape(-1, 2)), list(range(1, args.n_loop + 1)),
+        OUTDIR / f"fem_obs_n{args.n_obs}_seed{args.obs_seed}_loop{args.n_loop}.npz",
+        refit=args.fem_refit, L=float(L), a=float(a), avg_width=float(avg_width),
+        eta=float(η), rho=float(ρ), body_force_x=float(FBODY[0]),
+        dt=float(Δt), nx=args.fem_nx, ny=args.fem_ny)
+
+for n_ in range(1, args.n_loop + 1):
+    if USE_OBS:
+        sl = slice((n_ - 1) * args.n_obs, n_ * args.n_obs)     # this step's points
+        f1, f2, _ = obs_fem[n_]                                 # FEM at t_n
+        f1 = jnp.asarray(onp.asarray(f1)[sl])
+        f2 = jnp.asarray(onp.asarray(f2)[sl])
+        assert bool(jnp.isfinite(f1).all() & jnp.isfinite(f2).all()), \
+            f"sparse point outside FEM mesh at step {n_}: lower --obs-margin"
+        e1, e2 = args.sigma_obs * jrd.normal(k_noise[n_ - 1], (2, args.n_obs))
+        OBS_CLEAN[n_] = (f1, f2)
+        OBS[n_] = (R_obs_all[n_ - 1], f1 + e1, f2 + e2)        # sigma_obs = 0 -> exact
+    else:
+        OBS[n_] = (R_EMPTY, jnp.zeros(0), jnp.zeros(0))
+
+fp, cfg = config_fingerprint(R_G, OBS[1][0])
+
 print(f"[config] fingerprint {fp}")
 print(f"[config] dt={Δt}  n_loop={args.n_loop}  n_artificial={args.n_artificial}"
-      f"  ntrain={n_train(R_G)}  dt*F_x={float(Δt/ρ*FBODY[0]):.4f}"
+      f"  ntrain={n_train(R_G, OBS[1][0])}"
       f"  sqrt(eta*dt/rho)={onp.sqrt(η*Δt/ρ):.3f}")
 if args.fixed_points:
     print("[config] fixed artificial-data locations -> K factorized once")
@@ -792,7 +855,9 @@ else:
 u1_prev = jnp.zeros(R_G.shape[0])
 u2_prev = jnp.zeros(R_G.shape[0])
 
-idx_G = g_index(R_G)
+idx_G = g_index(R_G, OBS[1][0])
+
+
 Sigma_prev = jnp.zeros((idx_G.shape[0], idx_G.shape[0]))   # Sigma^{0,0} = 0 (exact rest)
 
 print(f"[config] zero_up={args.zero_up}: Nelder-Mead over "
@@ -803,9 +868,10 @@ if PROPAGATE:
     print("[warn] Sigma^{n-1} is in K AND in the propagation term -> counted twice")
 
 # ---- fit theta once against the first step --------------------------------
-y = make_y(u1_prev, u2_prev)
+R_O, u1_o, u2_o = OBS[1]
+y   = make_y(u1_prev, u2_prev, u1_o, u2_o)
 N_G = artificial_noise(Sigma_prev)
-obj = lambda ta, y=y, R_G=R_G, N_G=N_G: nlp_active(ta, y, R_G, N_G) 
+obj = lambda ta, y=y, R_G=R_G, R_O=R_O, N_G=N_G: nlp_active(ta, y, R_G, R_O, N_G)
 final_params = None
 if not args.fit and not args.no_cache:
     final_params = cache.load_theta(CACHE_PATH, fp, theta_init.shape)
@@ -817,7 +883,7 @@ if final_params is None:
     ta0 = theta_init[ACTIVE_IDX]
     print(f"Initial value: {float(obj(ta0)):.6e}", flush=True)
     t0 = time.time()
-    ta, nit = run_nm_then_lbfgs(ta0, y, R_G, N_G)
+    ta, nit = run_nm_then_lbfgs(ta0, y, R_G, R_O, N_G)
     final_params = expand_theta(ta)
     print(f"Final value:   {float(obj(ta)):.6e}  "
           f"[{time.time()-t0:.0f}s, {nit} iters]")
@@ -839,6 +905,7 @@ N_STOP = min(args.n_loop, int(round(args.t_stop / Δt)))
 SNAP_STEPS = sorted({max(1, int(round(k * N_STOP / args.n_snap)))
                      for k in range(1, args.n_snap + 1)})
 snapshots = []        # (step, t, U1, U2, S1, S2) captured at those steps
+SNAP_OBS = {}
 print(f"[config] evolution snapshots at steps {SNAP_STEPS} "
       f"(t = {', '.join(f'{s*Δt:.3f}' for s in SNAP_STEPS)})")
 
@@ -878,27 +945,26 @@ for n in range(1, args.n_loop + 1):
     t_wall = time.time()
 
     # 1) observations + eq.(12) noise for this step
-    y      = make_y(u1_prev, u2_prev)
+    R_O, u1_o, u2_o = OBS[n]
+    y      = make_y(u1_prev, u2_prev, u1_o, u2_o)
     N_G    = artificial_noise(Sigma_prev)
     M_prop = Sigma_prev if PROPAGATE else jnp.zeros_like(Sigma_prev)
 
     # 2) refit theta, warm-started from the previous step's optimum
     if args.refit_every_step and n > 1:
-        
-        ta, _ = run_nelder_mead(final_params[ACTIVE_IDX], y, R_G, N_G)
+        ta, _ = run_nelder_mead(final_params[ACTIVE_IDX], y, R_G, R_O, N_G)
         final_params = expand_theta(ta, final_params)
-        print(onp.asarray(final_params))
     # 3) factorize. K changes every step (N_G = diag(Sigma_prev)), so no caching.
-    Lc = factorize(final_params, R_G, N_G)
+    Lc = factorize(final_params, R_G, R_O, N_G)
     if not bool(jnp.all(jnp.isfinite(Lc))):
         raise FloatingPointError(f"Cholesky failed at step {n}; "
                                  f"theta = {onp.asarray(final_params)}")
 
     # 4) posterior on the test grid (for plots / diagnostics), including
     #    the propagated-uncertainty correction from Sigma_prev / M
-    u1_mean, u1_std = predict_diag(Lc, final_params, y, R_test, R_G, "u1", M_prop, idx_G)
-    u2_mean, u2_std = predict_diag(Lc, final_params, y, R_test, R_G, "u2", M_prop, idx_G)
-    p_mean,  p_std  = predict_diag(Lc, final_params, y, R_test, R_G, "p",  M_prop, idx_G)
+    u1_mean, u1_std = predict_diag(Lc, final_params, y, R_test, R_G, R_O, "u1", M_prop, idx_G)
+    u2_mean, u2_std = predict_diag(Lc, final_params, y, R_test, R_G, R_O, "u2", M_prop, idx_G)
+    p_mean,  p_std  = predict_diag(Lc, final_params, y, R_test, R_G, R_O, "p",  M_prop, idx_G)
 
     # 5) draw the NEXT artificial-data locations, then evaluate the JOINT
     #    posterior there (mean + full covariance) -> becomes next Sigma_prev
@@ -907,7 +973,7 @@ for n in range(1, args.n_loop + 1):
                 else sample_artificial(args.n_artificial, kn, fresh=args.fresh_points))
 
     u1_next, u2_next, Sigma_next = predict_joint(
-        Lc, final_params, y, R_G_next, R_G, M_prop, idx_G)
+        Lc, final_params, y, R_G_next, R_G, R_O, M_prop, idx_G)
 
     # ---- diagnostics
     U1 = onp.asarray(u1_mean).reshape(NX, NY)
@@ -979,6 +1045,8 @@ for n in range(1, args.n_loop + 1):
         history[-1]["fem_rel_l2"] = rel
     if n in SNAP_STEPS:
         snapshots.append((n, t_now, U1.copy(), U2.copy(), S1.copy(), S2.copy()))
+        if USE_OBS:
+            SNAP_OBS[n] = onp.asarray(R_O)
         if F1_test is not None:
             print(f"      [fem] t={t_now:.3f}  rel L2 vs steady = {rel:.4f}")
     last = (n == args.n_loop)
@@ -994,7 +1062,12 @@ for n in range(1, args.n_loop + 1):
                                         "p":   (p_mean,  p_std)}, fem=None)
         plt.close(fig_n)      # plot_all returns the combined fig still open;
                               # over a long march these accumulate.
-
+    extra = {}
+    if USE_OBS:
+        extra = dict(R_obs=onp.asarray(R_O),
+                     u1_obs=onp.asarray(u1_o), u2_obs=onp.asarray(u2_o),
+                     u1_obs_clean=onp.asarray(OBS_CLEAN[n][0]),
+                     u2_obs_clean=onp.asarray(OBS_CLEAN[n][1]))
     onp.savez(OUTDIR / f"state_t{n:04d}.npz",
               t=t_now, theta=onp.asarray(final_params),
               u1=U1, u2=U2, p=onp.asarray(p_mean).reshape(NX, NY),
@@ -1003,7 +1076,8 @@ for n in range(1, args.n_loop + 1):
               u1_artificial=onp.asarray(u1_next),
               u2_artificial=onp.asarray(u2_next),
               Sigma_diag_artificial=onp.asarray(jnp.diag(Sigma_next)),
-              noise_G_diag=onp.asarray(jnp.diag(N_G)))
+              noise_G_diag=onp.asarray(jnp.diag(N_G)),
+              **extra)
 
     # 6) hand off to the next step (Sigma_next carries the propagated
     #    uncertainty forward, replacing the old "exact-value" assumption)
@@ -1103,6 +1177,8 @@ evolution_plot.plot_evolution_vs_fem(
     L=float(L), a=float(a), avg_width=float(avg_width),
     fem=fem_march, cmap=args.evolution_cmap, tag=fp, dt=float(Δt),
     n_artificial=args.n_artificial)
+if USE_OBS and snapshots:
+    plot_evolution_sparse(snapshots, SNAP_OBS, OUTDIR / f"evolution_sparse_{fp}.png")
 
 evolution_plot.plot_uncertainty_evolution(
     snapshots, OUTDIR, XX=onp.asarray(XX), YY=onp.asarray(YY),
