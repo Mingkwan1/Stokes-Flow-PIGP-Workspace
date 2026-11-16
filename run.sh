@@ -4,7 +4,7 @@
 #PJM -L elapse=12:00:00
 #PJM -g jh250081a
 #PJM -j
-#PJM -o logs/logs_20261013/%n.%j.out
+#PJM -o logs/logs_20261029/%n.%j.out
 
 export PATH="/work/jh250081a/n15005/local/bin:$PATH"
 export UV_CACHE_DIR="/work/jh250081a/n15005/.cache/uv"
@@ -27,4 +27,4 @@ uv run python ./src/workspace/main_unsteady_stokes_flow.py \
   --n-candidate 680 --n-loop "${NLOOP:-50}" --dt "${DT:-0.008}" --zero-up \
   --nm-iter "${NMITER:-50}" $REFIT_FLAG --n-snap "${NSNAP:-3}" --tol "${TOL:-1e-3}" --profile-n-times 3 \
   --lbfgs-iter "${LBFGS_ITER:-100}" --lbfgs-tol "${LBFGS_TOL:-1e-5}" \
-  --eps-jitter 1e-3 --gif 
+  --eps-jitter 1e-3 --gif --obs-mode "${MODE:-wall}" --n-obs "${NOBS:-40}" --sigma-obs "${SIGMAOBS:-0.01}"

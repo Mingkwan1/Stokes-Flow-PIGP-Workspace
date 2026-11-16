@@ -347,6 +347,33 @@ def plot_uncertainty_evolution(snaps, outdir, *, XX, YY, L, a, avg_width,
     print(f"[unc] wrote {out}")
     return fig
 
+def plot_evolution_sparse(snapshots, snap_obs, out):
+    ns = len(snapshots)
+    fig, axs = plt.subplots(2, ns, figsize=(3.2*ns, 4.6),
+                            sharex=True, sharey=True, squeeze=False)
+    XXn, YYn = onp.asarray(XX), onp.asarray(YY)
+    xw = onp.linspace(0.0, float(L), 400)
+    hw = onp.asarray(width(jnp.asarray(xw))) / 2
+    for row, (comp, sym) in enumerate([(2, r"$u_x$"), (3, r"$u_y$")]):
+        vmax = max(float(onp.nanmax(onp.abs(s[comp]))) for s in snapshots)
+        for col, s in enumerate(snapshots):
+            n, t = s[0], s[1]
+            ax = axs[row, col]
+            im = ax.pcolormesh(XXn, YYn, s[comp], cmap=args.evolution_cmap,
+                               vmin=-vmax, vmax=vmax, shading="gouraud")
+            ax.plot(xw, hw, "k", lw=1); ax.plot(xw, -hw, "k", lw=1)
+            R = snap_obs[n]
+            ax.scatter(R[:, 0], R[:, 1], s=12, c="k", edgecolors="w",
+                       linewidths=0.5, zorder=3)
+            ax.set_aspect("equal")
+            if row == 0: ax.set_title(f"$t={t:.3f}$")
+            if col == 0: ax.set_ylabel("$y$")
+            if row == 1: ax.set_xlabel("$x$")
+        fig.colorbar(im, ax=axs[row].tolist(), shrink=0.85, label=sym)
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[plot] {out}")
+    
 def plot_evolution_vs_fem(snaps, outdir, *, XX, YY, L, a, avg_width,
                           fem=None, cmap="RdBu_r", tag="", dt=None,
                           n_artificial=None, error_cmap="hot",
