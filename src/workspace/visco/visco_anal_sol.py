@@ -297,8 +297,8 @@ def main():
 
     out = Path(a.out_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)
-    f1 = plot_channel_fields(results, y, fname=out / "channel_field.png")
-    f2 = plot_profiles_and_centerline(results, y, fname=out / "profiles.png")
+    f1 = plot_channel_fields(results, y, fname=out / "channel_field_oldroyd.png")
+    f2 = plot_profiles_and_centerline(results, y, fname=out / "profiles_oldroyd.png")
     print(f"saved {f1}, {f2}")
     if not a.no_show:
         plt.show()

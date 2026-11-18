@@ -16,5 +16,5 @@ mkdir -p "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" "$UV_TOOL_DIR"
 cd /work/jh250081a/n15005/Stokes-Flow-PIGP-Workspace
 
 uv run python src/workspace/visco/visco_anal_sol.py \
-    --model both --n_end 1000 --S1 2 --S2 0.5 \
+    --model both --n_end 10000 --S1 2 --S2 0.2 \
     --out_dir src/workspace/visco/output
