@@ -211,6 +211,9 @@ k_dsp_G = lambda b:    S(k_pG(b))
 
 ### Kernel Matrix
 
+#Make K
+
+
 ### Posterior Calculation
 
 ### Optimization
