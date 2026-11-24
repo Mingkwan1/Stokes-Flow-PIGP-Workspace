@@ -400,7 +400,6 @@ def neg_log_posterior(theta):
     nlp = (0.5*jnp.dot(v, v) + jnp.sum(jnp.log(jnp.diag(Lc))) + 0.5*ntrain*jnp.log(2.0*jnp.pi)) + 0.5*jnp.sum(theta[0::3]**2)/(2.0**2)
     return nlp
 
-
 fun = neg_log_posterior
 
 def run_nelder_mead(init_params, fun, maxiter=500, tol=1e-2):

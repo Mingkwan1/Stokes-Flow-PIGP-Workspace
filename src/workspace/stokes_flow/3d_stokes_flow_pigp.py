@@ -191,36 +191,204 @@ k_fs = lambda a:    add(D(k_ps, a),     mul(-η, Lap(k_us(a))))
 
 k_ss =              add(*[D(k_us(a), a) for a in range(2)])  
 
-# Time dependant kernels (G)
-
 k_fu = lambda a, b: add(D(k_pu[b], a), mul(-η, Lap(k_uu[a][b])))
-
-k_uG  = lambda a, b: add(k_uu[a][b], mul(Δt, k_uf(a, b)))
-k_pG  = lambda b:    add(k_pu[b],    mul(Δt, k_pf(b)))
-
-k_GG  = lambda a, b: add(k_uu[a][b],
-                         mul(Δt,    k_uf(a, b)),
-                         mul(Δt,    k_fu(a, b)),
-                         mul(Δt**2, k_ff(a, b)))
-
-k_Gs  = lambda a:    add(k_us(a), mul(Δt, k_fs(a)))
-
-k_dsu_G = lambda a, b: S(k_uG(a, b))
-k_dsp_G = lambda b:    S(k_pG(b))
-
 
 ### Kernel Matrix
 
+## Buiding K
+
+BLOCK_NAMES = ["u1", "u2","u3", "Su1", "Su2","Su3", "Sp", "f1", "f2","f3", "s"]
+
+
+theta_init = jnp.array([
+    1.2, jnp.log(0.30), jnp.log(0.30),   # u1-u1
+   1.2, jnp.log(0.30), jnp.log(0.30),   # u1-u2  
+   1.2, jnp.log(0.30), jnp.log(0.30),   # u1-u3  
+    1.2, jnp.log(0.30), jnp.log(0.30),   # u2-u2
+    1.2, jnp.log(0.30), jnp.log(0.30),   # u2-u3
+    1.2, jnp.log(0.30), jnp.log(0.30),   # u3-u3
+   0.0, jnp.log(0.30), jnp.log(0.30),   # u1-p
+   0.0, jnp.log(0.30), jnp.log(0.30),   # u2-p
+   0.0, jnp.log(0.30), jnp.log(0.30),   # u3-p
+    1.2, jnp.log(0.30), jnp.log(0.30),   # p-p
+])
+
+def kmat(k):
+    if k is None:
+        return lambda R1, R2, t: jnp.zeros((R1.shape[0], R2.shape[0]))
+    return jax.jit(jax.vmap(jax.vmap(k, (None, 0, None)), (0, None, None)))
+
+def make_blocks(R_f, R_O):
+    """Block layout. Only the G blocks move between time steps."""
+    b = []
+    if USE_WALL: b += [("u1w", "u1", R_wall), # no-slip, u_x
+                        ("u2w", "u2", R_wall),# no-slip, u_y
+                        ("u3w", "u3", R_wall),# no-slip, u_z
+                        ] 
+    if USE_OBS:  b += [("u1o", "u1", R_O),     # no-slip, u_x
+                        ("u2o", "u2", R_O),
+                        ("u3o", "u3", R_O)] # no-slip, u_y
+    return b + [("Su1", "Su1", R_dSu1), # periodicity, u_x
+                ("Su2", "Su2", R_dSu2), # periodicity, u_y
+                ("Su3", "Su3", R_dSu3), # periodicity, u_z
+                ("Sp", "Sp", R_sp),# periodicity, p
+                ("G1", "G1", R_f), # backward-Euler momentum, x
+                ("G2", "G2", R_f), # backward-Euler momentum, y
+                ("G3", "G3", R_f), # backward-Euler momentum, z
+                ("s", "s", R_s)] # continuity
+
+def block_slices(R_f, R_O):
+    """Start/end offsets of each named block in the K / y ordering."""
+    offsets = {}
+    start = 0
+    for name, _, R in make_blocks(R_f, R_O):
+        offsets[name] = (start, start + R.shape[0])
+        start += R.shape[0]
+    return offsets
+
+kfn = {
+    ("u1","u1"): k_uu[0][0],           ("u1","u2"): k_uu[0][1],             ("u1","u3"): k_uu[0][2],
+    ("u2","u2"): k_uu[1][1],           ("u2","u3"): k_uu[1][2],
+    ("u3","u3"): k_uu[2][2],
+
+    ("u1","Su1"): k_u_dsu(0,0),        ("u1","Su2"): k_u_dsu(0,1),         ("u1","Su3"): k_u_dsu(0,2),
+    ("u2","Su1"): k_u_dsu(1,0),        ("u2","Su2"): k_u_dsu(1,1),         ("u2","Su3"): k_u_dsu(1,2),
+    ("u3","Su1"): k_u_dsu(2,0),        ("u3","Su2"): k_u_dsu(2,1),         ("u3","Su3"): k_u_dsu(2,2),
+
+    ("u1","Sp"):  k_u_dsp(0),          ("u2","Sp"):  k_u_dsp(1),           ("u3","Sp"):  k_u_dsp(2),
+
+    ("Su1","Su1"): k_dsu_dsu(0,0),     ("Su1","Su2"): k_dsu_dsu(0,1),     ("Su1","Su3"): k_dsu_dsu(0,2), 
+    ("Su2","Su1"): k_dsu_dsu(1,0),     ("Su2","Su2"): k_dsu_dsu(1,1),     ("Su2","Su3"): k_dsu_dsu(1,2),
+    ("Su3","Su1"): k_dsu_dsu(2,0),     ("Su3","Su2"): k_dsu_dsu(2,1),     ("Su3","Su3"): k_dsu_dsu(2,2),
+
+    ("Su1","Sp"):  k_dsu_dsp(0),       ("Su2","Sp"):  k_dsu_dsp(1),       ("Su3","Sp"):  k_dsu_dsp(2),
+
+    ("Sp","Sp"):   k_dsp_dsp,
+
+    ("u1","f1"): k_uf(0,0),            ("u1","f2"): k_uf(0,1),          ("u1","f3"): k_uf(0,2),
+    ("u2","f1"): k_uf(1,0),            ("u2","f2"): k_uf(1,1),          ("u2","f3"): k_uf(1,2),
+    ("u3","f1"): k_uf(2,0),            ("u3","f2"): k_uf(2,1),          ("u3","f3"): k_uf(2,2),
+
+    ("u1","s"):  k_us(0),              ("u2","s"):  k_us(1),            ("u3","s"):  k_us(2),
+
+    ("Su1","f1"): k_dsu_f(0,0),        ("Su1","f2"): k_dsu_f(0,1),        ("Su1","f3"): k_dsu_f(0,2),
+    ("Su2","f1"): k_dsu_f(1,0),        ("Su2","f2"): k_dsu_f(1,1),        ("Su2","f3"): k_dsu_f(1,2),
+    ("Su3","f1"): k_dsu_f(2,0),        ("Su3","f2"): k_dsu_f(2,1),        ("Su3","f3"): k_dsu_f(2,2),
+
+    ("Su1","s"):  k_dsu_s(0),          ("Su2","s"):  k_dsu_s(1),          ("Su3","s"):  k_dsu_s(2),
+
+    ("f1","f1"): k_f(0,0),            ("f1","f2"): k_f(0,1),            ("f1","f3"): k_f(0,2),   
+    ("f2","f1"): k_f(1,0),            ("f2","f2"): k_f(1,1),            ("f2","f3"): k_f(1,2),   
+    ("f3","f1"): k_f(2,0),            ("f3","f2"): k_f(2,1),            ("f3","f3"): k_f(2,2),   
+
+    ("f1","s"):  k_fs(0),              ("f2","s"):  k_fs(1),            ("f3","s"):  k_fs(2),
+
+    ("s","s"):   k_ss,
+}
+
+def kblock(ki, Ri, kj, Rj, theta):
+    if (ki, kj) in kfn:
+        return kmat(kfn[(ki, kj)])(Ri, Rj, theta)
+    return kmat(kfn[(kj, ki)])(Rj, Ri, theta).T
+
+def build_K(theta,R_f, R_O):
+    blocks = make_blocks(R_f, R_O)
+    n = len(blocks)
+    rows = [[None]*n for _ in range(n)]
+    for i in range(n):
+        for j in range(i, n):
+            _, ki, Ri = blocks[i]
+            _, kj, Rj = blocks[j]
+            rows[i][j] = kblock(ki, Ri, kj, Rj, theta)
+            rows[j][i] = rows[i][j].T
+    return jnp.block(rows)
+
 #Make K
 
+y = jnp.concatenate([
+    u_wall,                      # 
+    s_u,                     # 
+    s_p,                       # 
+    f,                       # 
+    s,                         #
+])
 
 ### Posterior Calculation
 
+@jax.jit
+def neg_log_posterior(theta):
+    K = build_K(theta) + (EPS_JITTER**2) * jnp.eye(ntrain)
+    Lc = jnp.linalg.cholesky(K)
+    v  = solve_triangular(Lc, y, lower=True)
+    nlp = (0.5*jnp.dot(v, v) + jnp.sum(jnp.log(jnp.diag(Lc))) + 0.5*ntrain*jnp.log(2.0*jnp.pi)) + 0.5*jnp.sum(theta[0::3]**2)/(2.0**2)
+    return nlp
+
+fun = neg_log_posterior
+
 ### Optimization
+
+
+NM_SOLVER = jaxopt.ScipyMinimize(
+    fun=_nlp_value_zero_grad, value_and_grad=True,
+    method="Nelder-Mead", tol=args.tol, maxiter=args.nm_iter,
+    callback=_nm_callback, options={"disp": True, "adaptive": True})
+
+LBFGS_SOLVER = jaxopt.ScipyMinimize(
+    fun=nlp_active, method="L-BFGS-B",
+    tol=args.lbfgs_tol, maxiter=args.lbfgs_iter)
+
+def run_nelder_mead(x0, y, R_G, R_O, N_G):
+    _NM_STATE["it"], _NM_STATE["data"] = 0, (y, R_G, R_O, N_G)
+    res = NM_SOLVER.run(x0, y, R_G, R_O, N_G)
+    return res.params, int(res.state.iter_num)
+
+def run_nm_then_lbfgs(x0, y, R_G, R_O, N_G):
+    ta, nit = run_nelder_mead(x0, y, R_G, R_O, N_G)
+    if args.lbfgs_iter <= 0:
+        return ta, nit
+    f_nm = float(nlp_active(ta, y, R_G, R_O, N_G))
+    res = LBFGS_SOLVER.run(ta, y, R_G, R_O, N_G)         
+    tb = res.params
+    f_lb = float(nlp_active(tb, y, R_G, R_O, N_G))
+    ok = bool(jnp.all(jnp.isfinite(tb))) and onp.isfinite(f_lb) and f_lb < f_nm
+    print(f"[lbfgs] NM {f_nm:.6e} -> LBFGS {f_lb:.6e}  "
+          f"({int(res.state.iter_num)} iters)  {'accepted' if ok else 'REJECTED, keeping NM'}")
+    return (tb if ok else ta), nit + int(res.state.iter_num)
+
+### Prediction
+
+# ---- test points: a grid inside the channel -------------------------------
+NX, NY, NZ= 41, 41, 41
+x_line = jnp.linspace(0.0, L, NX)
+eta_line = jnp.linspace(-0.999, 0.999, NY) * 0.5      
+XX, EE = jnp.meshgrid(x_line, eta_line, indexing="ij")
+YY = EE * width(XX)
+R_test = jnp.stack([XX.ravel(), YY.ravel()], axis=-1) 
+
+@partial(jax.jit, static_argnames=("star",))
+def predict(theta, R_star, star="u1"):
+    K  = build_K(theta) + (EPS_JITTER**2) * jnp.eye(ntrain)
+    Lc = jnp.linalg.cholesky(K)
+    Q  = build_K_star_obs(theta, R_star, star)
+
+    alpha = solve_triangular(Lc.T, solve_triangular(Lc, y, lower=True), lower=False)
+    mean  = Q @ alpha                                    # (n_star,)
+
+    V    = solve_triangular(Lc, Q.T, lower=True)         # (ntrain, n_star)
+    var  = prior_var_diag(theta, R_star, star) - jnp.sum(V**2, axis=0)
+    std  = jnp.sqrt(jnp.clip(var, 0.0))
+    return mean, std
+
+u1_mean, u1_std = predict(final_params, R_test, "u1")
+u2_mean, u2_std = predict(final_params, R_test, "u2")
+u3_mean, u3_std = predict(final_params, R_test, "u3")
 
 ### PLotting
 
+plotting.plot_all(ctx, {
+    "u_x": (u1_mean, u1_std),
+    "u_y": (u2_mean, u2_std),
+    "u_z": (u3_mean, u3_std),
+}, fem=fem_data)
+plt.show()
 
-### Main Function + Arguments
-
-## Parse arguments
