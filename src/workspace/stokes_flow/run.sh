@@ -15,4 +15,4 @@ mkdir -p "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" "$UV_TOOL_DIR"
 
 cd /work/jh250081a/n15005/Stokes-Flow-PIGP-Workspace
 
-uv run python src/workspace/stokes_flow/3d_stokes_flow_pigp.py \
+uv run python -u src/workspace/stokes_flow/main_steady_stokes_3d.py \
