@@ -67,7 +67,7 @@ R0 = radius(0.0)                               # = radius(L)
 
 # ---- training points ---------------------------------------------------------
 NX_WALL, NT_WALL = 24, 16    # wall rings along x  x  points per ring          -> 384
-NR_DISK, NT_DISK = 15, 16    # periodic cross-section: radii x half-turn angles -> 160
+NR_DISK, NT_DISK = 14, 16    # periodic cross-section: radii x half-turn angles -> 160
 DISK_MARGIN      = 0.9       # cross-section points stay inside 0.9 R (off the wall points)
 N_F              = 250       # interior collocation points
 F_MARGIN         = 0.98      # collocation points stay inside 0.98 R
@@ -382,38 +382,44 @@ def profile_line(axis):
 
 COMPS      = ("u1", "u2", "u3")
 COMP_NAME  = {"u1": "u_x", "u2": "u_y", "u3": "u_z"}
-STAT_COLS  = ("min", "max", "mean", "mean_abs", "rel")
+STAT_COLS  = ("min", "max", "mean", "mean|.|")
 
 def _stats(e):
-    return {"min": e.min(), "max": e.max(), "mean": e.mean(), "mean_abs": onp.abs(e).mean()}
+    return {"min": e.min(), "max": e.max(), "mean": e.mean(), "mean|.|": onp.abs(e).mean()}
 
 def error_stats(pred, exact):
-    """e = u_pred - u_exact per component.
-    rel = ||e_c||_2 / ||u_exact||_2 with the norm of the full exact velocity
-    (u_y = u_z = 0 exactly, so a per-component norm would divide by zero)."""
-    norm_u = onp.sqrt(sum(onp.sum(exact[c]**2) for c in COMPS))
-    out = {}
+    """Per component, two tables:
+    absolute error  e     = u_pred - u_exact
+    relative error  e_rel = (u_pred - u_exact) / u_exact,  set to 0 where u_exact = 0.
+    Dividing by U_max, not by u_exact point by point: u_y = u_z = 0 exactly and
+    u_x -> 0 at the wall, so a pointwise ratio would divide by zero."""
+    absolute, relative = {}, {}
     for c in COMPS:
-        e = pred[c][0] - exact[c]
-        out[COMP_NAME[c]] = {**_stats(e), "rel": onp.linalg.norm(e) / norm_u}
-    return out
+        e   = pred[c][0] - exact[c]
+        nz  = exact[c] != 0
+        rel = onp.where(nz, e / onp.where(nz, exact[c], 1.0), 0.0)
+        absolute[COMP_NAME[c]] = _stats(e)
+        relative[COMP_NAME[c]] = _stats(rel)
+    return {"absolute error  e = u_pred - u_exact": absolute,
+            "relative error  (u_pred - u_exact) / u_exact   (0 where u_exact = 0)": relative}
 
 def residual_stats(th, alpha, R):
     """PDE residuals of the posterior mean: div u and f_a - F_a (no reference needed)."""
     rows = {"div u": onp.asarray(predict_mean(th, alpha, R, "s"))}
     for i in range(3):
         rows[f"f{i+1} - F{i+1}"] = onp.asarray(predict_mean(th, alpha, R, nf(i))) - float(FBODY[i])
-    return {k: _stats(v) for k, v in rows.items()}
+    return {"residual of the posterior mean": {k: _stats(v) for k, v in rows.items()}}
 
 def write_report(path, header, sections):
-    """sections: [(title, n_points, {row: {stat: value}})]"""
+    """sections: [(title, n_points, {table_title: {row: {stat: value}}})]"""
     lines = [f"# {h}" for h in header] + [""]
-    for title, n, rows in sections:
+    for title, n, tables in sections:
         lines.append(f"[{title}]  n = {n}")
-        lines.append(f"{'':12s}" + "".join(f"{c:>14s}" for c in STAT_COLS))
-        for name, st in rows.items():
-            lines.append(f"{name:12s}" + "".join(f"{st[c]:14.6e}" if c in st else f"{'-':>14s}"
-                                                 for c in STAT_COLS))
+        for table_title, rows in tables.items():
+            lines.append(f"  {table_title}")
+            lines.append(f"  {'':12s}" + "".join(f"{c:>14s}" for c in STAT_COLS))
+            for name, st in rows.items():
+                lines.append(f"  {name:12s}" + "".join(f"{st[c]:14.6e}" for c in STAT_COLS))
         lines.append("")
     text = "\n".join(lines)
     path.write_text(text)
