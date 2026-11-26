@@ -1,12 +1,16 @@
 """
 Replicating Fujita-san work on inferring 3D Stokes flow using PIGP.
 
-Steady Stokes flow in an x-periodic pipe of radius R(x) = width(x) / 2.
-    a = 0    straight pipe, compared with exact Poiseuille
-    a = 0.2  sinusoidal pipe (no exact solution)
+Steady Stokes flow in an x-periodic pipe of radius R(x) = width(x) / 2,
+width(x) = avg_width + 2 a sin(2 pi x / L).
+
+    python 3d_stokes_flow_pigp.py                          straight pipe (a = 0), vs exact Poiseuille
+    python 3d_stokes_flow_pigp.py --geometry sinusoidal    sinusoidal pipe (a = 0.2), vs a 3D FEM reference
+                                                      (fem_stokes_3d.py, solved once and cached)
 """
 
 ### Importing Libraries and Modules
+import argparse
 import time
 from functools import partial
 from pathlib import Path
@@ -21,11 +25,25 @@ import jaxopt
 import numpy as onp
 from jax.scipy.linalg import solve_triangular
 
+import fem_stokes_3d
 import plotting_3d
+
+## Command line
+
+WALL_AMP = {"pipe": 0.0, "sinusoidal": 0.2}               # wall amplitude a per geometry
+
+parser = argparse.ArgumentParser(description="Steady 3D Stokes flow in a periodic pipe with a PIGP.")
+parser.add_argument("--geometry", choices=list(WALL_AMP), default="pipe",
+                    help="pipe: straight, compared with exact Poiseuille (default); "
+                         "sinusoidal: a = 0.2, compared with a 3D FEM reference")
+parser.add_argument("--fem-refit", action="store_true",
+                    help="re-solve the FEM reference even if a matching cache exists")
+args = parser.parse_args()
+GEOMETRY = args.geometry
 
 ## Output
 
-OUTDIR = Path(__file__).resolve().parent / "output"     # next to this script
+OUTDIR = Path(__file__).resolve().parent / "output" / GEOMETRY   # next to this script
 ERRDIR = OUTDIR / "errors"
 ERRDIR.mkdir(parents=True, exist_ok=True)
 
@@ -38,7 +56,7 @@ def Product_Squared_Exponential_Kernel(r, rp, theta):
                          - 0.5*((r[2]-rp[2])/jnp.exp(log_lz))**2)
 
 def u_exact(R):
-    """Poiseuille (valid only for a = 0): u = (F (R0^2 - r^2) / (4 eta), 0, 0)."""
+    """Poiseuille (straight pipe only): u = (F (R0^2 - r^2) / (4 eta), 0, 0)."""
     R  = onp.asarray(R)
     r2 = R[:, 1]**2 + R[:, 2]**2
     ux = float(FBODY[0]) * (float(R0)**2 - r2) / (4 * η)
@@ -56,7 +74,8 @@ def radius(x):
 η = 1.0          # Viscosity of the fluid
 L = 2.5          # Characteristic Length
 avg_width = 1.0  # Average width
-a = 0.0          # 0.0 = straight pipe (Poiseuille check), 0.2 = sinusoidal
+a = WALL_AMP[GEOMETRY]           # wall amplitude, set by --geometry
+REFERENCE = {"pipe": "exact", "sinusoidal": "fem"}[GEOMETRY]   # what errors are measured against
 
 ΔP = -30.0                                     # Pressure Diff
 FBODY = -ΔP/L * jnp.array([1.0, 0.0, 0.0])     # Body force
@@ -67,9 +86,9 @@ R0 = radius(0.0)                               # = radius(L)
 
 # ---- training points ---------------------------------------------------------
 NX_WALL, NT_WALL = 24, 16    # wall rings along x  x  points per ring          -> 384
-NR_DISK, NT_DISK = 14, 16    # periodic cross-section: radii x half-turn angles -> 160
-DISK_MARGIN      = 0.9       # cross-section points stay inside 0.9 R (off the wall points)
-N_F              = 250       # interior collocation points
+NR_DISK, NT_DISK = 20, 16    # periodic cross-section: radii x half-turn angles -> 160
+DISK_MARGIN      = 0.98       # cross-section points stay inside 0.9 R (off the wall points)
+N_F              = 400       # interior collocation points
 F_MARGIN         = 0.98      # collocation points stay inside 0.98 R
 SEED             = 67
 
@@ -274,11 +293,11 @@ def nlp_safe(theta):
 
 ### Optimization
 
-NM_ITER        = 500
-NM_TOL         = 1e-4
+NM_ITER        = 1000
+NM_TOL         = 1e-5
 NM_PRINT_EVERY = 25
-LBFGS_ITER     = 200         # 0 = Nelder-Mead only
-LBFGS_TOL      = 1e-6
+LBFGS_ITER     = 300         # 0 = Nelder-Mead only
+LBFGS_TOL      = 1e-10
 LBFGS_SCALE    = 0.01        # L-BFGS optimizes z with theta = theta_NM + LBFGS_SCALE * z
 
 GAMMA_AUTO     = 1.2         # initial gamma, u_a-u_a and p-p
@@ -339,6 +358,11 @@ N_PROFILE        = 101       # points on each profile line
 X_PROFILE        = L / 2     # x position of the profile lines
 N_TEST_VOL       = 4000      # random points over the whole volume (error statistics)
 
+# ---- FEM reference (sinusoidal pipe), see fem_stokes_3d.py ---------------------
+FEM_DISK_REFS    = 4         # cross-section mesh: 64 wall points per ring, 1024 triangles
+FEM_NX           = 64        # slices along x
+FEM_CACHE        = OUTDIR / "fem_reference.npz"
+
 @jax.jit
 def factorize(th):
     Lc    = jnp.linalg.cholesky(build_K(th) + EPS_JITTER**2 * jnp.eye(NTRAIN))
@@ -385,14 +409,14 @@ COMP_NAME  = {"u1": "u_x", "u2": "u_y", "u3": "u_z"}
 STAT_COLS  = ("min", "max", "mean", "mean|.|")
 
 def _stats(e):
+    """Statistics over the finite values (NaN = reference point outside the FEM mesh)."""
+    e = e[onp.isfinite(e)]
     return {"min": e.min(), "max": e.max(), "mean": e.mean(), "mean|.|": onp.abs(e).mean()}
 
 def error_stats(pred, exact):
-    """Per component, two tables:
-    absolute error  e     = u_pred - u_exact
-    relative error  e_rel = (u_pred - u_exact) / u_exact,  set to 0 where u_exact = 0.
-    Dividing by U_max, not by u_exact point by point: u_y = u_z = 0 exactly and
-    u_x -> 0 at the wall, so a pointwise ratio would divide by zero."""
+    """Per component, two tables against the reference u_ref (exact or FEM):
+    absolute error  e     = u_pred - u_ref
+    relative error  e_rel = (u_pred - u_ref) / u_ref,  set to 0 where u_ref = 0."""
     absolute, relative = {}, {}
     for c in COMPS:
         e   = pred[c][0] - exact[c]
@@ -400,8 +424,10 @@ def error_stats(pred, exact):
         rel = onp.where(nz, e / onp.where(nz, exact[c], 1.0), 0.0)
         absolute[COMP_NAME[c]] = _stats(e)
         relative[COMP_NAME[c]] = _stats(rel)
-    return {"absolute error  e = u_pred - u_exact": absolute,
-            "relative error  (u_pred - u_exact) / u_exact   (0 where u_exact = 0)": relative}
+    n_skip = int((~onp.isfinite(exact["u1"])).sum())
+    note = f"   ({n_skip} points outside the FEM mesh skipped)" if n_skip else ""
+    return {"absolute error  e = u_pred - u_ref" + note: absolute,
+            "relative error  (u_pred - u_ref) / u_ref   (0 where u_ref = 0)": relative}
 
 def residual_stats(th, alpha, R):
     """PDE residuals of the posterior mean: div u and f_a - F_a (no reference needed)."""
@@ -426,10 +452,40 @@ def write_report(path, header, sections):
     print(text)
     print(f"[save] {path}")
 
+## Reference solution
+
+def reference_solutions(point_sets):
+    """Reference velocity {"u1", "u2", "u3"} for each named point set.
+
+    pipe       : exact Poiseuille
+    sinusoidal : 3D FEM (scikit-fem), solved once for all points together and
+                 cached in FEM_CACHE; the cache is reused while the geometry,
+                 mesh and points are unchanged.
+    """
+    if REFERENCE == "exact":
+        return {k: u_exact(R) for k, R in point_sets.items()}
+    names = list(point_sets)
+    sizes = [point_sets[k].shape[0] for k in names]
+    allpts = onp.concatenate([onp.asarray(point_sets[k]) for k in names])
+    u1, u2, u3, _ = fem_stokes_3d.get(
+        allpts, FEM_CACHE, refit=args.fem_refit,
+        L=float(L), a=float(a), avg_width=float(avg_width), eta=float(η),
+        body_force_x=float(FBODY[0]), disk_refs=FEM_DISK_REFS, nx=FEM_NX)
+    out, i = {}, 0
+    for k, n in zip(names, sizes):
+        out[k] = {"u1": u1[i:i+n], "u2": u2[i:i+n], "u3": u3[i:i+n]}
+        i += n
+    return out
+
+REF_NAME = {"exact": "exact Poiseuille",
+            "fem": f"3D FEM, scikit-fem Taylor-Hood P2/P1, disk_refs = {FEM_DISK_REFS}, nx = {FEM_NX}"}[REFERENCE]
+REF_LABEL = {"exact": "Poiseuille", "fem": "FEM"}[REFERENCE]
+
 ### Main Driver
 
 if __name__ == "__main__":
-    print(f"[setup] a = {a}   R0 = {float(R0):.3f}   F = {float(FBODY[0]):.3f}")
+    print(f"[setup] reference: {REF_NAME}")
+    print(f"[setup] geometry = {GEOMETRY}   a = {a}   R0 = {float(R0):.3f}   F = {float(FBODY[0]):.3f}")
     print(f"[setup] wall {n_wall} pts, cross-section {n_disk} pts, interior {N_F} pts "
           f"->  ntrain = {NTRAIN}")
     print(f"[setup] blocks: {[kind for kind, _, _ in BLOCKS]}")
@@ -464,41 +520,48 @@ if __name__ == "__main__":
     wall_x = onp.linspace(0.0, L, 300)
     wall_r = onp.asarray(radius(jnp.asarray(wall_x)))
 
+    # ---- evaluation points and their reference velocity -----------------------
+    grids = {tag: plane_grid(axis) for axis, tag in [(1, "xy"), (2, "xz")]}
+    lines = {tag: profile_line(axis) for axis, tag in [(1, "py"), (2, "pz")]}
+    R_vol = sample_interior(N_TEST_VOL, jrd.PRNGKey(SEED + 1), TEST_MARGIN)
+    ref = reference_solutions({"vol": R_vol,
+                               **{t: g[2] for t, g in grids.items()},
+                               **{t: ln[1] for t, ln in lines.items()}})
+
+    # ---- whole volume: errors -------------------------------------------------
+    sections = [("error, volume", N_TEST_VOL,
+                 error_stats(predict_u(theta_opt, Lc, alpha, R_vol), ref["vol"]))]
+
     # ---- planes: x-y (z = 0) and x-z (y = 0) ---------------------------------
-    results, sections = {}, []
-    for axis, tag, vlabel in [(1, "xy", "$y$"), (2, "xz", "$z$")]:
-        XX, HH, R = plane_grid(axis)
-        pred  = predict_u(theta_opt, Lc, alpha, R)
-        exact = u_exact(R) if a == 0 else None
-        if exact is not None:
-            sections.append((f"error, plane {tag}", R.shape[0], error_stats(pred, exact)))
-        plotting_3d.plot_plane(XX, HH, pred, exact, vlabel, wall_x, wall_r,
+    results = {}
+    for tag, vlabel in [("xy", "$y$"), ("xz", "$z$")]:
+        XX, HH, R = grids[tag]
+        pred = predict_u(theta_opt, Lc, alpha, R)
+        sections.append((f"error, plane {tag}", R.shape[0], error_stats(pred, ref[tag])))
+        plotting_3d.plot_plane(XX, HH, pred, ref[tag], vlabel, wall_x, wall_r,
                                OUTDIR / f"plane_{tag}.png")
         results.update({f"{tag}_X": XX, f"{tag}_H": HH,
                         **{f"{tag}_{c}_mean": m for c, (m, _) in pred.items()},
-                        **{f"{tag}_{c}_std": s for c, (_, s) in pred.items()}})
+                        **{f"{tag}_{c}_std": s for c, (_, s) in pred.items()},
+                        **{f"{tag}_{c}_ref": ref[tag][c] for c in COMPS}})
 
     # ---- profiles of u_x across the pipe at x = X_PROFILE ---------------------
     profiles = {}
-    for axis, vlabel in [(1, "$y$  ($z = 0$)"), (2, "$z$  ($y = 0$)")]:
-        h, R = profile_line(axis)
+    for tag, vlabel in [("py", "$y$  ($z = 0$)"), ("pz", "$z$  ($y = 0$)")]:
+        h, R = lines[tag]
         m, s = (onp.asarray(v) for v in predict(theta_opt, Lc, alpha, R, "u1"))
-        profiles[vlabel] = (h, m, s, u_exact(R)["u1"] if a == 0 else None)
-    plotting_3d.plot_profiles(profiles, X_PROFILE, OUTDIR / "profiles_ux.png")
+        profiles[vlabel] = (h, m, s, ref[tag]["u1"])
+    plotting_3d.plot_profiles(profiles, X_PROFILE, OUTDIR / "profiles_ux.png", ref_label=REF_LABEL)
 
-    # ---- whole volume: errors (straight pipe) and PDE residuals ---------------
-    R_vol = sample_interior(N_TEST_VOL, jrd.PRNGKey(SEED + 1), TEST_MARGIN)
-    if a == 0:
-        sections.insert(0, ("error, volume", N_TEST_VOL,
-                            error_stats(predict_u(theta_opt, Lc, alpha, R_vol), u_exact(R_vol))))
+    # ---- PDE residuals (no reference needed) -----------------------------------
     sections.append(("PDE residual, volume", N_TEST_VOL, residual_stats(theta_opt, alpha, R_vol)))
 
     write_report(ERRDIR / "error_stats.txt", [
-        f"a = {a}   L = {L}   R0 = {float(R0)}   F = {float(FBODY[0])}",
-        f"reference = {'exact Poiseuille' if a == 0 else 'none'}",
+        f"geometry = {GEOMETRY}   a = {a}   L = {L}   R0 = {float(R0)}   F = {float(FBODY[0])}",
+        f"reference = {REF_NAME}",
         f"ntrain = {NTRAIN}   nlp = {float(nlp_safe(theta_opt)):.6e}   iterations = {n_iter}",
-        "error: e = u_pred - u_ref;  mean_abs = mean|e|;  rel = ||e_c||_2 / ||u_ref||_2 "
-        "(norm of the full reference velocity)",
+        "columns: min, max, mean of the signed value;  mean|.| = mean of its absolute value",
+        "absolute error: u_pred - u_ref;  relative error: (u_pred - u_ref) / u_ref, 0 where u_ref = 0",
         "residual: div u and f_a - F_a of the posterior mean (no reference needed)",
     ], sections)
 

@@ -19,7 +19,8 @@ def plot_plane(XX, HH, pred, exact, vlabel, wall_x, wall_r, out):
     """
     XX, HH  : (nx, nh) grid, x and the transverse coordinate (y or z)
     pred    : {"u1": (mean, std), "u2": ..., "u3": ...}, flat arrays of size nx*nh
-    exact   : {"u1": arr, "u2": arr, "u3": arr} or None (no error column)
+    exact   : reference {"u1": arr, "u2": arr, "u3": arr} or None (no error column);
+              NaN entries (outside the FEM mesh) are left blank
     vlabel  : y-axis label, e.g. "$y$" or "$z$"
     wall_x, wall_r : wall outline, drawn at +-wall_r
     out     : output path
@@ -58,11 +59,12 @@ def plot_plane(XX, HH, pred, exact, vlabel, wall_x, wall_r, out):
     print(f"[plot] {out}")
 
 
-def plot_profiles(profiles, x_profile, out):
+def plot_profiles(profiles, x_profile, out, ref_label="Poiseuille"):
     """
-    profiles  : {xlabel: (h, mean, std, exact_or_None)}, one panel per entry
+    profiles  : {xlabel: (h, mean, std, reference_or_None)}, one panel per entry
     x_profile : x position of the lines (for the title)
     out       : output path
+    ref_label : legend name of the reference curve (e.g. "Poiseuille", "FEM")
     """
     fig, axs = plt.subplots(1, len(profiles), figsize=(5 * len(profiles), 4),
                             sharey=True, squeeze=False)
@@ -70,7 +72,7 @@ def plot_profiles(profiles, x_profile, out):
         ax.fill_between(h, mean - 2 * std, mean + 2 * std, alpha=0.3, label=r"$\pm 2\sigma$")
         ax.plot(h, mean, lw=2, label="PIGP mean")
         if ex is not None:
-            ax.plot(h, ex, "k--", lw=1.5, label="Poiseuille")
+            ax.plot(h, ex, "k--", lw=1.5, label=ref_label)
         ax.set_xlabel(xlabel)
         ax.set_title(f"$u_x$ at $x = {x_profile:.3g}$")
         ax.grid(alpha=0.3)

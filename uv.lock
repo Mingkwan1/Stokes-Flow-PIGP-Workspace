@@ -464,6 +464,23 @@ wheels = [
 ]
 
 [[package]]
+name = "pyamg"
+version = "5.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/71/9d/099c69dbde77ea34cc483bba8655847e8fb553a021da68f25bc0f4be45ff/pyamg-5.4.1.tar.gz", hash = "sha256:b5829ce39687655ce68db4415c93ee171056bb4e41e7b798ef4e6e9f9f93beae", size = 4166930, upload-time = "2026-10-30T16:41:34.908Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/12/ef2f10bacec01e4febf568d12e401d7488b63d28d6ad59af5953c35ae14a/pyamg-5.4.1-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:74a55e4b5053e9890ee9afe61fcc5e3d81757add39ac9f3d8ea211c86b461bab", size = 2173845, upload-time = "2026-10-30T16:41:25.58Z" },
+    { url = "https://files.pythonhosted.org/packages/61/44/b8243a387d951821e863e3a764b971d30a4f9d0b0b012ad960b2820de423/pyamg-5.4.1-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:5c971d54735af4be4c0653a7be37e5c7bb59f3eef47addfaf346a3cce1e54cd8", size = 2170385, upload-time = "2026-10-30T16:41:27.408Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/39/b3c2eb3779a16ca481b1babcd4a465f5ae5bf237c922064832810e820c8e/pyamg-5.4.1-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2b56a96bc7f492ec49377ef537bd74f6ef7e53d8c39222dd8464f000f89d8441", size = 2391769, upload-time = "2026-10-30T16:41:29.386Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/b5/20a1b862b7cab90ce3f4e7640dd3137e9ddb2c3bb8b892b04d7d939937c2/pyamg-5.4.1-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:47a5befac3623fb129af8ac0100a0ff012bc4b7455c611dbcbb67c49958c3e74", size = 3459508, upload-time = "2026-10-30T16:41:31.034Z" },
+    { url = "https://files.pythonhosted.org/packages/28/d2/a6176b3ee2e50f03f885d8a1ad58ebe5fa904893b5254130267100b9cfdf/pyamg-5.4.1-cp314-cp314-win_amd64.whl", hash = "sha256:66a083c4f42d2735c22267f9cb38f1a8f46add355b0a77d29bc10c341ea6e9f7", size = 2133403, upload-time = "2026-10-30T16:41:33.152Z" },
+]
+
+[[package]]
 name = "pyparsing"
 version = "3.3.2"
 source = { registry = "https://pypi.org/simple" }
@@ -577,6 +594,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "optax" },
     { name = "pandas" },
+    { name = "pyamg" },
     { name = "scikit-fem" },
 ]
 
@@ -588,5 +606,6 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.9.4" },
     { name = "optax", specifier = ">=0.2.8" },
     { name = "pandas", specifier = ">=2.3.3" },
+    { name = "pyamg", specifier = ">=5.4.1" },
     { name = "scikit-fem", specifier = ">=12.0.2" },
 ]
